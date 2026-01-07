@@ -459,6 +459,19 @@ Additional documentation available:
 
 ---
 
+### 🔒 About / License screen
+
+Nemaks is distributed under the permissive MIT License, which allows use, modification, and redistribution of the software as long as the original license and copyright notice are preserved.[web:22][web:25]
+
+To make licensing and branding rules explicit inside the UI, it is recommended to add a dedicated **About / License** screen in the frontend:
+
+- Shows the project name and a short description of Nemaks.
+- Displays the MIT License summary with a link to the full [`LICENSE`](./LICENSE) file.
+- Explains **branding & attribution** expectations (use of the Nemaks name and logo, requirement to mark unofficial forks, etc.).
+- Highlights security and moderation design choices (no E2E encryption by design, server-side audit logging, RBAC).[page:1]
+
+A ready-to-use React + TypeScript + Tailwind component for this screen can be implemented under `src/pages/AboutPage.tsx` and mounted on the `/about` route using Wouter. A link such as **“About / License”** can then be placed in the footer or user menu so that users of hosted instances can always see the license and branding information from inside the app.[web:7][page:1]
+
 ## ❓ FAQ
 
 ### Why no end-to-end encryption?
