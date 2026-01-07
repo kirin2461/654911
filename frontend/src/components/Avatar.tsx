@@ -21,7 +21,8 @@ function sanitizeImageSrc(src?: string): string | null {
 
     // Allow only http and https URLs (including same-origin relatives)
     if (protocol === 'http:' || protocol === 'https:') {
-      return trimmed
+      // Return the normalized URL string instead of the original input
+      return url.toString()
     }
   } catch {
     // If URL construction fails, treat as invalid
