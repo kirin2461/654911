@@ -9,10 +9,29 @@ interface AvatarProps {
   className?: string
 }
 
+function sanitizeImageSrc(src?: string): string | null {
+  if (!src) return null
+  const trimmed = src.trim()
+  if (!trimmed) return null
+
+  try {
+    const url = new URL(trimmed, window.location.origin)
+    if (url.protocol === 'http:' || url.protocol === 'https:') {
+      return url.toString()
+    }
+  } catch {
+    // If URL construction fails, treat it as unsafe.
+    return null
+  }
+
+  return null
+}
+
 export function Avatar({ src, alt = '', size = 'md', userId = '', className }: AvatarProps) {
   const [imgError, setImgError] = React.useState(false)
   const initials = getInitials(alt || 'User')
   const gradient = generateAvatarColor(userId)
+  const safeSrc = sanitizeImageSrc(src)
 
   const sizeClasses = {
     sm: 'w-8 h-8 text-sm',
@@ -21,7 +40,7 @@ export function Avatar({ src, alt = '', size = 'md', userId = '', className }: A
     xl: 'w-24 h-24 text-4xl',
   }
 
-  if (!src || imgError) {
+  if (!safeSrc || imgError) {
     return (
       <div
         className={cn(
@@ -38,7 +57,7 @@ export function Avatar({ src, alt = '', size = 'md', userId = '', className }: A
 
   return (
     <img
-      src={src}
+      src={safeSrc}
       alt={alt}
       className={cn('rounded-full object-cover', sizeClasses[size], className)}
       onError={() => setImgError(true)}
