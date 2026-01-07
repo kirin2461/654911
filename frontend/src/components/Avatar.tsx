@@ -14,6 +14,11 @@ function sanitizeImageSrc(src?: string): string | null {
   const trimmed = src.trim()
   if (!trimmed) return null
 
+  // In non-browser environments (e.g. SSR), avoid using window and skip external images
+  if (typeof window === 'undefined') {
+    return null
+  }
+
   try {
     // Use current origin as base so relative URLs resolve correctly
     const url = new URL(trimmed, window.location.origin)
@@ -21,7 +26,8 @@ function sanitizeImageSrc(src?: string): string | null {
 
     // Allow only http and https URLs (including same-origin relatives)
     if (protocol === 'http:' || protocol === 'https:') {
-      return trimmed
+      // Return the canonical, fully-resolved URL instead of the raw input
+      return url.href
     }
   } catch {
     // If URL construction fails, treat as invalid
