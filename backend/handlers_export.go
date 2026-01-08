@@ -8,6 +8,7 @@ import (
 	"os"
 	"strconv"
 	"time"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
@@ -29,6 +30,11 @@ func handleExport(c *gin.Context, toStorage bool) {
 	
 	channelIDStr := c.Query("channel_id")
 	format := c.DefaultQuery("format", "json")
+	format = strings.ToLower(format)
+	if format != "json" && format != "csv" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid format"})
+		return
+	}
 
 	if channelIDStr == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "channel_id required"})
