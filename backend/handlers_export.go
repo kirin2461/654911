@@ -35,6 +35,11 @@ func handleExport(c *gin.Context, toStorage bool) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid format"})
 		return
 	}
+	// Map validated format to a safe file extension to avoid using raw user input in paths.
+	ext := "json"
+	if format == "csv" {
+		ext = "csv"
+	}
 
 	if channelIDStr == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "channel_id required"})
@@ -70,7 +75,7 @@ func handleExport(c *gin.Context, toStorage bool) {
 
 	// 4. Process Export
 	if toStorage {
-		filename := fmt.Sprintf("export_%d_%d.%s", cid, time.Now().Unix(), format)
+		filename := fmt.Sprintf("export_%d_%d.%s", cid, time.Now().Unix(), ext)
 		filepath := "./uploads/exports/" + filename
 		os.MkdirAll("./uploads/exports", 0750)
 
