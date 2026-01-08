@@ -117,13 +117,19 @@ func registerHandler(c *gin.Context) {
         }
 
         hashedPassword, _ := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+        email := req.Email
+        if email != nil && *email == "" {
+                email = nil
+        }
+
         user := User{
                 Username: req.Username,
-                Email:    req.Email,
+                Email:    email,
                 Password: string(hashedPassword),
         }
 
         if err := db.Create(&user).Error; err != nil {
+                log.Printf("Registration error: %v", err)
                 c.JSON(http.StatusConflict, gin.H{"error": "User or email already exists"})
                 return
         }
