@@ -108,7 +108,7 @@ func ensureGlobalGuild() {
 func registerHandler(c *gin.Context) {
         var req struct {
                 Username string `json:"username" binding:"required"`
-                Email    string `json:"email"`
+                Email    *string `json:"email"`
                 Password string `json:"password" binding:"required,min=6"`
         }
         if err := c.ShouldBindJSON(&req); err != nil {
