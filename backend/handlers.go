@@ -108,7 +108,7 @@ func ensureGlobalGuild() {
 func registerHandler(c *gin.Context) {
         var req struct {
                 Username string `json:"username" binding:"required"`
-                Email    string `json:"email"`
+                Email    *string `json:"email"`
                 Password string `json:"password" binding:"required,min=6"`
         }
         if err := c.ShouldBindJSON(&req); err != nil {
@@ -117,13 +117,19 @@ func registerHandler(c *gin.Context) {
         }
 
         hashedPassword, _ := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+        email := req.Email
+        if email != nil && *email == "" {
+                email = nil
+        }
+
         user := User{
                 Username: req.Username,
-                Email:    req.Email,
+                Email:    email,
                 Password: string(hashedPassword),
         }
 
         if err := db.Create(&user).Error; err != nil {
+                log.Printf("Registration error: %v", err)
                 c.JSON(http.StatusConflict, gin.H{"error": "User or email already exists"})
                 return
         }
@@ -144,11 +150,13 @@ func loginHandler(c *gin.Context) {
 
         var user User
         if err := db.Where("username = ?", req.Username).First(&user).Error; err != nil {
+                log.Printf("Login attempt failed for username %s: user not found", req.Username)
                 c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials"})
                 return
         }
 
         if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password)); err != nil {
+                log.Printf("Login attempt failed for username %s: invalid password", req.Username)
                 c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials"})
                 return
         }
