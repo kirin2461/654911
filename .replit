@@ -51,7 +51,7 @@ outputType = "console"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "export LD_PRELOAD= && cd backend && go run ."
+args = "go run backend/*.go"
 
 [[workflows.workflow]]
 name = "Audit Service (Rust)"
