@@ -158,7 +158,6 @@ func ensureGlobalGuild() {
 }
 
 func registerHandler(c *gin.Context) {
-        log.Printf("Register attempt: %+v", c.Request.Body)
         var req struct {
                 Username string  `json:"username" binding:"required"`
                 Email    *string `json:"email"`
@@ -219,7 +218,6 @@ func registerHandler(c *gin.Context) {
 }
 
 func loginHandler(c *gin.Context) {
-        log.Printf("Login attempt for username: %s", c.PostForm("username"))
         var req struct {
                 Username string `json:"username" binding:"required"`
                 Password string `json:"password" binding:"required"`
