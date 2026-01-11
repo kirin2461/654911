@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link, useLocation } from 'wouter'
 import { useStore } from '@/lib/store'
+import { useNotifications } from '@/contexts/NotificationContext'
 import { Avatar } from './Avatar'
 import { Logo } from './Logo'
 import { NotificationCenter } from './NotificationCenter'
@@ -32,10 +33,13 @@ interface LayoutProps {
 
 export function Layout({ children }: LayoutProps) {
   const { user, logout, theme, setTheme, isDemoMode, notifications } = useStore()
+  const { unreadCount } = useNotifications()
   const [location] = useLocation()
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
   const isAdmin = user?.role === 'admin' || user?.role === 'moderator'
+
+  const totalMessageBadge = Math.max(notifications.messages, unreadCount)
 
   const navigation = [
     { name: 'Home', href: '/', icon: Home, badge: 0 },
@@ -44,7 +48,7 @@ export function Layout({ children }: LayoutProps) {
     { name: 'Calls', href: '/call', icon: Phone, badge: 0 },
     { name: 'Jarvis AI', href: '/jarvis', icon: Sparkles, badge: 0 },
     { name: 'Friends', href: '/friends', icon: Users, badge: notifications.friends },
-    { name: 'Messages', href: '/messages', icon: MessageSquare, badge: notifications.messages },
+    { name: 'Messages', href: '/messages', icon: MessageSquare, badge: totalMessageBadge },
     { name: 'Channels', href: '/channels', icon: Hash, badge: notifications.channels },
     { name: 'Profile', href: '/profile', icon: User, badge: 0 },
     { name: 'Invite', href: '/invite', icon: UserPlus, badge: 0 },
@@ -55,7 +59,7 @@ export function Layout({ children }: LayoutProps) {
   const bottomNavItems = [
     { name: 'Home', href: '/', icon: Home },
     { name: 'Feed', href: '/feed', icon: Rss },
-    { name: 'Messages', href: '/messages', icon: MessageSquare, badge: notifications.messages },
+    { name: 'Messages', href: '/messages', icon: MessageSquare, badge: totalMessageBadge },
     { name: 'Friends', href: '/friends', icon: Users, badge: notifications.friends },
     { name: 'Profile', href: '/profile', icon: User },
   ]

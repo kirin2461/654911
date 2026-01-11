@@ -67,6 +67,37 @@ func createMessageHandler(c *gin.Context) {
     return
   }
 
+  // Get sender info for WebSocket notification
+  var sender User
+  db.First(&sender, senderID)
+
+  // Send real-time notification via WebSocket - include both camelCase and snake_case for compatibility
+  senderIDStr := strconv.FormatUint(uint64(senderID), 10)
+  wsMessage := map[string]interface{}{
+    "type":         "direct_message",
+    "id":           message.ID,
+    "content":      message.Content,
+    "fromUserId":   senderIDStr,
+    "from_user_id": senderIDStr,
+    "toUserId":     req.ToUserID,
+    "to_user_id":   req.ToUserID,
+    "createdAt":    message.CreatedAt.Format(time.RFC3339),
+    "created_at":   message.CreatedAt.Format(time.RFC3339),
+    "username":     sender.Username,
+    "sender_id":    senderID,
+  }
+  if sender.Avatar != nil && *sender.Avatar != "" {
+    wsMessage["avatar"] = *sender.Avatar
+  }
+  if message.VoiceURL != nil && *message.VoiceURL != "" {
+    wsMessage["voice_url"] = *message.VoiceURL
+    wsMessage["voice_duration"] = message.VoiceDuration
+  }
+  if message.ReplyToID != nil {
+    wsMessage["reply_to_id"] = *message.ReplyToID
+  }
+  hub.sendToUser(req.ToUserID, wsMessage)
+
   go createNotificationHandler(uint(receiverID), "new_message", "New message from user")
 
   c.JSON(http.StatusCreated, message)

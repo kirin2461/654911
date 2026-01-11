@@ -4,6 +4,7 @@ import { NotificationContainer, type Notification } from '@/components/Notificat
 import { IncomingCallModal } from '@/components/IncomingCallModal'
 import { OutgoingCallModal } from '@/components/OutgoingCallModal'
 import { useStore } from '@/lib/store'
+import { playNotificationSound } from '@/lib/notificationSounds'
 
 interface IncomingCall {
   callId: string
@@ -82,6 +83,10 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
     setNotifications(prev => [newNotification, ...prev].slice(0, 50))
     setToasts(prev => [newNotification, ...prev])
     
+    const soundType = notification.type === 'call' ? 'call' : 
+                      notification.type === 'message' ? 'message' : 'system'
+    playNotificationSound(soundType)
+    
     if ('Notification' in window && Notification.permission === 'granted') {
       new Notification(notification.title, {
         body: notification.message,
@@ -111,6 +116,40 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
   const clearAll = useCallback(() => {
     setNotifications([])
   }, [])
+
+  useEffect(() => {
+    if (!user?.id) return
+    
+    const token = localStorage.getItem('token')
+    if (!token) return
+    
+    const fetchNotifications = async () => {
+      try {
+        const response = await fetch('/api/notifications', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        })
+        if (response.ok) {
+          const data = await response.json()
+          if (Array.isArray(data)) {
+            const mappedNotifications: Notification[] = data.map((n: any) => ({
+              id: String(n.id || crypto.randomUUID()),
+              type: n.type === 'new_message' ? 'message' : 
+                    n.type === 'call' ? 'call' : 'system',
+              title: n.title || n.type || 'Notification',
+              message: n.message || n.content || '',
+              read: n.read || false,
+              timestamp: n.created_at ? new Date(n.created_at) : new Date()
+            }))
+            setNotifications(mappedNotifications)
+          }
+        }
+      } catch (e) {
+        console.error('[NotificationContext] Failed to fetch notifications:', e)
+      }
+    }
+    
+    fetchNotifications()
+  }, [user?.id])
 
   useEffect(() => {
     console.log('[NotificationContext] useEffect triggered, user:', user?.id, user?.username)
@@ -289,6 +328,7 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
           }));
         }
         break;
+      case 'direct_message':
       case 'new_message':
         addNotification({
           type: 'message',
@@ -438,6 +478,21 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
   }, [ws])
 
   const unreadCount = notifications.filter(n => !n.read).length
+
+  useEffect(() => {
+    const baseTitle = 'Nemaks'
+    if (unreadCount > 0) {
+      document.title = `(${unreadCount}) ${baseTitle}`
+    } else {
+      document.title = baseTitle
+    }
+  }, [unreadCount])
+
+  useEffect(() => {
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission()
+    }
+  }, [])
 
   return (
     <NotificationContext.Provider value={{
