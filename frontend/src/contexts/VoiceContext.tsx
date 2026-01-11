@@ -184,11 +184,19 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
           audioEl.autoplay = true
           audioEl.muted = false // Ensure not muted
           audioEl.volume = 1.0
+          audioEl.setAttribute('playsinline', 'true');
           remoteAudioElementsRef.current.set(peerId, audioEl)
         }
         console.log(`Setting remote audio stream for ${peerId}`);
         audioEl.srcObject = event.streams[0]
-        audioEl.play().catch(err => console.error("Error playing remote audio element:", err))
+        audioEl.play().catch(err => {
+          console.error("Error playing remote audio element:", err);
+          const playOnGesture = () => {
+            audioEl?.play();
+            document.removeEventListener('click', playOnGesture);
+          };
+          document.addEventListener('click', playOnGesture);
+        })
         startRemoteVoiceAnalysis(peerId, event.streams[0])
       } else if (event.track.kind === 'video') {
         const label = event.track.label.toLowerCase()

@@ -45,13 +45,21 @@ const VideoCall: React.FC<VideoCallProps> = ({
         
         // Ensure volume is up and playing
         remoteVideoRef.current.volume = 1.0;
-        remoteVideoRef.current.muted = false; // CRITICAL: Ensure NOT muted
+        remoteVideoRef.current.muted = false;
+        
+        // CRITICAL: Some browsers require a user gesture or specific attributes
+        remoteVideoRef.current.setAttribute('playsinline', 'true');
         
         const playPromise = remoteVideoRef.current.play();
         if (playPromise !== undefined) {
           playPromise.catch(e => {
             console.error("Error playing remote video:", e);
-            // Fallback: try to play on user interaction if needed
+            // Attempt to play on any click if auto-play fails
+            const playOnGesture = () => {
+              remoteVideoRef.current?.play();
+              document.removeEventListener('click', playOnGesture);
+            };
+            document.addEventListener('click', playOnGesture);
           });
         }
       }
