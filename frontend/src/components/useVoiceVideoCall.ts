@@ -65,7 +65,12 @@ const useVoiceVideoCall = (): UseVoiceVideoCallReturn => {
         // Ensure audio tracks are enabled and not muted at the source
         stream.getAudioTracks().forEach(track => {
           track.enabled = true;
+          console.log("987");
           console.log("Local audio track initialized:", track.label);
+        });
+
+        stream.getVideoTracks().forEach(track => {
+          console.log("345");
         });
 
         setCallState((prev) => ({

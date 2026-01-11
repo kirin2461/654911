@@ -40,6 +40,9 @@ const VideoCall: React.FC<VideoCallProps> = ({
       const firstRemoteParticipant = callHook.remoteParticipants[0];
       const remoteStream = callHook.getRemoteStream(firstRemoteParticipant.id);
       if (remoteVideoRef.current && remoteStream) {
+        remoteStream.getAudioTracks().forEach(() => console.log("987"));
+        remoteStream.getVideoTracks().forEach(() => console.log("345"));
+        
         console.log("Setting remote stream to video element", remoteStream.getAudioTracks().length, "audio tracks found");
         remoteVideoRef.current.srcObject = remoteStream;
         
