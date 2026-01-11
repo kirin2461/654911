@@ -317,7 +317,8 @@ func (c *WSClient) readPump() {
                 if hasType && targetUserID != "" && targetUserID != "undefined" {
                         switch msgType {
                         case "call-offer", "call-answer", "ice-candidate", "call-end", "call-rejected",
-                                "call-accepted", "call-cancelled", "voice-offer", "voice-answer", "voice-ice-candidate":
+                                "call-accepted", "call-cancelled", "voice-offer", "voice-answer", "voice-ice-candidate",
+                                "mute-toggle", "video-toggle", "call-state-sync":
                                 log.Printf("Routing %s from %s to %s", msgType, c.UserID, targetUserID)
                                 hub.sendToUser(targetUserID, msg)
                                 

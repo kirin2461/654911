@@ -18,11 +18,15 @@ import {
   Signal,
   SignalHigh,
   SignalMedium,
-  SignalLow
+  SignalLow,
+  Activity,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useStore } from '@/lib/store'
 import { friendsAPI, type Friend } from '@/lib/api'
+import { AudioLevelIndicator, AudioLogsPanel, useAudioLogger } from '@/components/AudioLevelIndicator'
 
 type CallState = 'idle' | 'calling' | 'ringing' | 'connected' | 'ended'
 type VideoQuality = '720p' | '480p' | '360p' | '240p'
@@ -107,6 +111,10 @@ export default function VideoCallPage() {
   const [_showChat, setShowChat] = useState(false)
   const [callHistory] = useState<CallHistoryItem[]>([])
   const [wsConnected, setWsConnected] = useState(false)
+  const [remoteMuted, setRemoteMuted] = useState(false)
+  const [remoteVideoOff, setRemoteVideoOff] = useState(false)
+  const [showAudioLogs, setShowAudioLogs] = useState(false)
+  const audioLogger = useAudioLogger()
   const pendingCallProcessed = useRef(false)
   const callEndSent = useRef(false)
   
@@ -300,6 +308,8 @@ export default function VideoCallPage() {
         console.log('Received call-answer')
         await handleCallAnswer(message)
         setCallState('connected')
+        audioLogger.logSuccess('Call connected successfully')
+        sendStateSync()
         break
       case 'call-accepted':
         console.log('Call accepted by recipient, waiting for call-answer')
@@ -322,6 +332,19 @@ export default function VideoCallPage() {
         setCallState('ended')
         cleanup()
         setTimeout(() => setCallState('idle'), 2000)
+        break
+      case 'mute-toggle':
+        setRemoteMuted(message.isMuted)
+        audioLogger.logInfo(`Remote participant ${message.isMuted ? 'muted' : 'unmuted'} their microphone`)
+        break
+      case 'video-toggle':
+        setRemoteVideoOff(!message.isVideoOn)
+        audioLogger.logInfo(`Remote participant ${message.isVideoOn ? 'enabled' : 'disabled'} their camera`)
+        break
+      case 'call-state-sync':
+        if (message.isMuted !== undefined) setRemoteMuted(message.isMuted)
+        if (message.isVideoOn !== undefined) setRemoteVideoOff(!message.isVideoOn)
+        audioLogger.logInfo('Received call state sync from remote participant')
         break
     }
   }
@@ -526,8 +549,11 @@ export default function VideoCallPage() {
       }))
       
       setCallState('connected')
+      audioLogger.logSuccess('Call accepted and connected')
+      setTimeout(() => sendStateSync(), 500)
     } catch (error) {
       console.error('Failed to accept call:', error)
+      audioLogger.logError(`Failed to accept call: ${error}`)
       setCallState('idle')
     }
   }
@@ -591,14 +617,39 @@ export default function VideoCallPage() {
     screenStreamRef.current = null
     peerConnectionRef.current = null
     setIsScreenSharing(false)
+    setRemoteMuted(false)
+    setRemoteVideoOff(false)
+    audioLogger.logInfo('Call cleanup completed')
   }
+
+  const sendStateSync = useCallback(() => {
+    if (wsRef.current?.readyState === WebSocket.OPEN && selectedFriend?.id) {
+      wsRef.current.send(JSON.stringify({
+        type: 'call-state-sync',
+        isMuted,
+        isVideoOn,
+        targetUserId: selectedFriend.id
+      }))
+      audioLogger.logInfo('Sent state sync to remote participant')
+    }
+  }, [isMuted, isVideoOn, selectedFriend?.id, audioLogger])
 
   const toggleMute = () => {
     if (localStreamRef.current) {
       const audioTrack = localStreamRef.current.getAudioTracks()[0]
       if (audioTrack) {
         audioTrack.enabled = !audioTrack.enabled
-        setIsMuted(!audioTrack.enabled)
+        const newMutedState = !audioTrack.enabled
+        setIsMuted(newMutedState)
+        audioLogger.logInfo(`Microphone ${newMutedState ? 'muted' : 'unmuted'}`)
+        
+        if (wsRef.current?.readyState === WebSocket.OPEN && selectedFriend?.id) {
+          wsRef.current.send(JSON.stringify({
+            type: 'mute-toggle',
+            isMuted: newMutedState,
+            targetUserId: selectedFriend.id
+          }))
+        }
       }
     }
   }
@@ -608,7 +659,17 @@ export default function VideoCallPage() {
       const videoTrack = localStreamRef.current.getVideoTracks()[0]
       if (videoTrack) {
         videoTrack.enabled = !videoTrack.enabled
-        setIsVideoOn(videoTrack.enabled)
+        const newVideoState = videoTrack.enabled
+        setIsVideoOn(newVideoState)
+        audioLogger.logInfo(`Camera ${newVideoState ? 'enabled' : 'disabled'}`)
+        
+        if (wsRef.current?.readyState === WebSocket.OPEN && selectedFriend?.id) {
+          wsRef.current.send(JSON.stringify({
+            type: 'video-toggle',
+            isVideoOn: newVideoState,
+            targetUserId: selectedFriend.id
+          }))
+        }
       }
     }
   }
@@ -950,8 +1011,43 @@ export default function VideoCallPage() {
                 <div className="bg-black/50 backdrop-blur-sm rounded-lg px-3 py-2">
                   <span className="text-white text-sm font-mono">{formatDuration(callDuration)}</span>
                 </div>
+                <div className="bg-black/50 backdrop-blur-sm rounded-lg px-3 py-2 flex items-center gap-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-gray-400 text-xs">Вы:</span>
+                    <AudioLevelIndicator 
+                      stream={localStreamRef.current} 
+                      isActive={!isMuted}
+                      barCount={4}
+                    />
+                    {isMuted && <MicOff className="w-3 h-3 text-red-400" />}
+                  </div>
+                  <div className="w-px h-4 bg-gray-600" />
+                  <div className="flex items-center gap-2">
+                    <span className="text-gray-400 text-xs">Собеседник:</span>
+                    {remoteMuted ? (
+                      <MicOff className="w-3 h-3 text-red-400" />
+                    ) : (
+                      <AudioLevelIndicator 
+                        stream={remoteAudioRef.current?.srcObject as MediaStream | null} 
+                        isActive={!remoteMuted}
+                        barCount={4}
+                      />
+                    )}
+                    {remoteVideoOff && <VideoOff className="w-3 h-3 text-red-400" />}
+                  </div>
+                </div>
               </div>
               <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setShowAudioLogs(!showAudioLogs)}
+                  className={cn(
+                    "p-2 rounded-lg backdrop-blur-sm transition-colors",
+                    showAudioLogs ? "bg-green-500/50 text-green-200" : "bg-black/50 hover:bg-black/70 text-white"
+                  )}
+                  title="Логи аудио"
+                >
+                  <Activity className="w-5 h-5" />
+                </button>
                 <button
                   onClick={() => setShowChat(prev => !prev)}
                   className="p-2 rounded-lg bg-black/50 backdrop-blur-sm hover:bg-black/70 text-white transition-colors"
@@ -1102,6 +1198,32 @@ export default function VideoCallPage() {
                     </div>
                   </div>
                 </div>
+              </div>
+            )}
+
+            {showAudioLogs && (
+              <div className="absolute top-16 left-4 w-80 z-20">
+                <AudioLogsPanel 
+                  logs={audioLogger.logs}
+                  maxLogs={30}
+                />
+              </div>
+            )}
+
+            {(remoteMuted || remoteVideoOff) && callState === 'connected' && (
+              <div className="absolute top-20 left-1/2 transform -translate-x-1/2 bg-black/70 backdrop-blur-sm rounded-lg px-4 py-2 flex items-center gap-3 z-10">
+                {remoteMuted && (
+                  <div className="flex items-center gap-2 text-red-400">
+                    <MicOff className="w-4 h-4" />
+                    <span className="text-sm">Собеседник отключил микрофон</span>
+                  </div>
+                )}
+                {remoteVideoOff && (
+                  <div className="flex items-center gap-2 text-red-400">
+                    <VideoOff className="w-4 h-4" />
+                    <span className="text-sm">Камера отключена</span>
+                  </div>
+                )}
               </div>
             )}
           </div>
