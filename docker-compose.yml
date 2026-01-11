@@ -1,61 +1,94 @@
 version: '3.8'
 
 services:
+  # PostgreSQL Database
   postgres:
-    image: postgres:18.1-alpine
+    image: postgres:15-alpine
+    container_name: nemaxks-db
+    restart: unless-stopped
     environment:
-      POSTGRES_USER: nemaks_user
-      POSTGRES_PASSWORD: nemaks_password
-      POSTGRES_DB: nemaks
-    ports:
-      - "5432:5432"
+      POSTGRES_USER: ${POSTGRES_USER:-nemaxks}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-nemaxks_secret}
+      POSTGRES_DB: ${POSTGRES_DB:-nemaxks}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-nemaxks}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
+  # Redis Cache
   redis:
-    image: redis:8.4-alpine
+    image: redis:7-alpine
+    container_name: nemaxks-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
     ports:
       - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
-  audit-service:
+  # Backend API
+  backend:
     build:
-      context: .
-      dockerfile: rust-services/audit-service/Dockerfile
-    environment:
-      DATABASE_URL: postgres://nemaks_user:nemaks_password@postgres:5432/nemaks
-    ports:
-      - "50051:50051"
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: nemaxks-backend
+    restart: unless-stopped
     depends_on:
-      - postgres
-    restart: on-failure
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-nemaxks}:${POSTGRES_PASSWORD:-nemaxks_secret}@postgres:5432/${POSTGRES_DB:-nemaxks}?sslmode=disable
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
+      PORT: 8000
+      GIN_MODE: ${GIN_MODE:-release}
+    volumes:
+      - uploads_data:/app/uploads
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
-  search-service:
+  # Frontend (development)
+  frontend:
     build:
-      context: .
-      dockerfile: rust-services/search-service/Dockerfile
-    environment:
-      DATABASE_URL: postgres://nemaks_user:nemaks_password@postgres:5432/nemaks
-    ports:
-      - "50052:50052"
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: nemaxks-frontend
+    restart: unless-stopped
     depends_on:
-      - postgres
-    restart: on-failure
-
-  # Optional: Uncomment to run Go backend alongside
-  # backend:
-  #   build:
-  #     context: .
-  #     dockerfile: backend/Dockerfile
-  #   environment:
-  #     DATABASE_URL: postgres://nemaks_user:nemaks_password@postgres:5432/nemaks
-  #     REDIS_URL: redis://redis:6379
-  #   ports:
-  #     - "8080:8080"
-  #   depends_on:
-  #     - postgres
-  #     - redis
-  #     - audit-service
-  #     - search-service
+      - backend
+    environment:
+      VITE_API_URL: ${VITE_API_URL:-http://localhost:8000}
+    ports:
+      - "5173:5173"
+    profiles:
+      - dev
 
 volumes:
   postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  uploads_data:
+    driver: local
+
+networks:
+  default:
+    name: nemaxks-network
