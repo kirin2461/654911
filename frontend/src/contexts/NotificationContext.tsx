@@ -23,6 +23,8 @@ interface OutgoingCall {
 
 type WebSocketMessageHandler = (data: any) => void
 
+type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'reconnecting' | 'error'
+
 interface NotificationContextType {
   notifications: Notification[]
   unreadCount: number
@@ -39,6 +41,7 @@ interface NotificationContextType {
   cancelCall: () => void
   subscribeToMessages: (handler: WebSocketMessageHandler) => () => void
   sendWebSocketMessage: (message: any) => void
+  connectionStatus: ConnectionStatus
 }
 
 const NotificationContext = createContext<NotificationContextType | null>(null)
@@ -63,6 +66,7 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
   const [ws, setWs] = useState<WebSocket | null>(null)
   const [incomingCall, setIncomingCall] = useState<IncomingCall | null>(null)
   const [outgoingCall, setOutgoingCall] = useState<OutgoingCall | null>(null)
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('disconnected')
   const pendingOfferRef = useRef<{ offer: RTCSessionDescriptionInit; fromUserId: string } | null>(null)
   const activeCallIdRef = useRef<string | null>(null)
   const messageHandlersRef = useRef<Set<WebSocketMessageHandler>>(new Set())
@@ -109,10 +113,20 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
   }, [])
 
   useEffect(() => {
-    if (!user?.id) return
+    console.log('[NotificationContext] useEffect triggered, user:', user?.id, user?.username)
+    
+    if (!user?.id) {
+      console.log('[NotificationContext] No user ID, skipping WebSocket connection')
+      return
+    }
 
     const token = localStorage.getItem('token')
-    if (!token) return
+    if (!token) {
+      console.log('[NotificationContext] No token in localStorage, skipping WebSocket connection')
+      return
+    }
+    
+    console.log('[NotificationContext] Starting WebSocket connection for user:', user.id, user.username)
     
     let socket: WebSocket | null = null
     let reconnectTimeout: ReturnType<typeof setTimeout> | null = null
@@ -124,36 +138,49 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
       const host = window.location.host.split(':')[0]
       const wsUrl = `${protocol}//${host}:8000/ws?token=${encodeURIComponent(token)}`
       
-      console.log('Connecting to WebSocket:', wsUrl)
-      socket = new WebSocket(wsUrl)
+      console.log('[NotificationContext] Connecting to WebSocket:', wsUrl)
+      setConnectionStatus('connecting')
+      
+      try {
+        socket = new WebSocket(wsUrl)
+      } catch (e) {
+        console.error('[NotificationContext] Failed to create WebSocket:', e)
+        setConnectionStatus('error')
+        return
+      }
       
       socket.onopen = () => {
-        console.log('Notification WebSocket connected')
+        console.log('[NotificationContext] WebSocket connected for user:', user.id, user.username)
         reconnectAttempts = 0
         setWs(socket)
+        setConnectionStatus('connected')
       }
       
       socket.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data)
+          console.log('[NotificationContext] Received message:', data.type)
           handleWebSocketMessage(data)
         } catch (e) {
-          console.error('Failed to parse WebSocket message:', e)
+          console.error('[NotificationContext] Failed to parse WebSocket message:', e)
         }
       }
       
       socket.onerror = (error) => {
-        console.error('WebSocket error:', error)
+        console.error('[NotificationContext] WebSocket error for user:', user.id, error)
+        setConnectionStatus('error')
       }
       
-      socket.onclose = () => {
-        console.log('WebSocket disconnected')
+      socket.onclose = (event) => {
+        console.log('[NotificationContext] WebSocket disconnected for user:', user.id, 'code:', event.code, 'reason:', event.reason)
         setWs(null)
+        setConnectionStatus('disconnected')
         
         if (reconnectAttempts < maxReconnectAttempts && user?.id) {
           reconnectAttempts++
           const delay = Math.min(5000 * Math.pow(1.5, reconnectAttempts - 1), 30000)
-          console.log(`Reconnecting in ${delay}ms (attempt ${reconnectAttempts})`)
+          console.log(`[NotificationContext] Reconnecting in ${delay}ms (attempt ${reconnectAttempts})`)
+          setConnectionStatus('reconnecting')
           reconnectTimeout = setTimeout(connect, delay)
         }
       }
@@ -162,6 +189,7 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
     connect()
     
     return () => {
+      console.log('[NotificationContext] Cleaning up WebSocket for user:', user?.id)
       if (reconnectTimeout) clearTimeout(reconnectTimeout)
       if (socket) socket.close()
     }
@@ -427,7 +455,8 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
       initiateCall,
       cancelCall,
       subscribeToMessages,
-      sendWebSocketMessage
+      sendWebSocketMessage,
+      connectionStatus
     }}>
       {children}
       <NotificationContainer notifications={toasts} onDismiss={dismissToast} />

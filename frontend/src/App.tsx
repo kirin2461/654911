@@ -7,6 +7,7 @@ import { NotificationProvider } from './contexts/NotificationContext'
 import { VoiceProvider } from './contexts/VoiceContext'
 import { AppStateProvider } from './contexts/AppStateContext'
 import { IncomingCallNotification } from './components/IncomingCallNotification'
+import { ConnectionStatusIndicator } from './components/ConnectionStatusIndicator'
 
 
 // Pages
@@ -86,6 +87,7 @@ function App() {
             <React.Suspense fallback={<LoadingScreen />}>
               <JarvisFloatingIndicator />
               <IncomingCallNotification />
+              <ConnectionStatusIndicator />
               <Switch>
                 {/* Public routes */}
                 <Route path="/welcome">
