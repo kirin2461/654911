@@ -58,26 +58,20 @@ func main() {
 
         // Configure CORS properly
         corsConfig := cors.Config{
-                AllowMethods:  []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-                AllowHeaders:  []string{"Origin", "Content-Type", "Accept", "Authorization", "X-Requested-With", "Cache-Control"},
-                ExposeHeaders: []string{"Content-Length"},
-                MaxAge:        12 * time.Hour,
-        }
-
-        // Get allowed origins from environment or use defaults
-        frontendURL := os.Getenv("FRONTEND_URL")
-        if frontendURL != "" {
-                // Production: specific origins with credentials
-                corsConfig.AllowOrigins = []string{frontendURL}
-                corsConfig.AllowCredentials = true
-        } else {
-                // Development: allow all origins
-                corsConfig.AllowAllOrigins = true
-                corsConfig.AllowCredentials = true
-                log.Println("WARNING: FRONTEND_URL not set, CORS allows all origins (development mode)")
+                AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+                AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization", "X-Requested-With", "Cache-Control"},
+                ExposeHeaders:    []string{"Content-Length"},
+                MaxAge:           12 * time.Hour,
+                AllowAllOrigins:  true,
+                AllowCredentials: true,
         }
 
         r.Use(cors.New(corsConfig))
+
+        r.NoRoute(func(c *gin.Context) {
+                log.Printf("404 Not Found: %s %s from %s", c.Request.Method, c.Request.URL.Path, c.ClientIP())
+                c.JSON(http.StatusNotFound, gin.H{"error": "Route not found"})
+        })
 
         r.GET("/", func(c *gin.Context) {
                 c.JSON(http.StatusOK, gin.H{

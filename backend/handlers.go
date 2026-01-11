@@ -158,13 +158,24 @@ func ensureGlobalGuild() {
 }
 
 func registerHandler(c *gin.Context) {
+        log.Printf("Register attempt: Method=%s Path=%s IP=%s", c.Request.Method, c.Request.URL.Path, c.ClientIP())
         var req struct {
                 Username string  `json:"username" binding:"required"`
                 Email    *string `json:"email"`
                 Password string  `json:"password" binding:"required,min=6"`
         }
         if err := c.ShouldBindJSON(&req); err != nil {
+                log.Printf("Register bind error: %v", err)
                 c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+                return
+        }
+
+        // Check if user already exists
+        var count int64
+        db.Model(&User{}).Where("username = ?", req.Username).Count(&count)
+        if count > 0 {
+                log.Printf("Register error: Username %s already taken", req.Username)
+                c.JSON(http.StatusConflict, gin.H{"error": "Username already taken"})
                 return
         }
 
@@ -186,21 +197,6 @@ func registerHandler(c *gin.Context) {
                 Password: string(hashedPassword),
         }
 
-        // Check if user already exists to provide a clearer error message
-        var count int64
-        db.Model(&User{}).Where("username = ?", req.Username).Count(&count)
-        if count > 0 {
-                c.JSON(http.StatusConflict, gin.H{"error": "Username already taken"})
-                return
-        }
-        if email != nil {
-                db.Model(&User{}).Where("email = ?", *email).Count(&count)
-                if count > 0 {
-                        c.JSON(http.StatusConflict, gin.H{"error": "Email already registered"})
-                        return
-                }
-        }
-
         if err := db.Create(&user).Error; err != nil {
                 log.Printf("Registration error: %v", err)
                 c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create user"})
@@ -218,11 +214,13 @@ func registerHandler(c *gin.Context) {
 }
 
 func loginHandler(c *gin.Context) {
+        log.Printf("Login attempt: Method=%s Path=%s IP=%s", c.Request.Method, c.Request.URL.Path, c.ClientIP())
         var req struct {
                 Username string `json:"username" binding:"required"`
                 Password string `json:"password" binding:"required"`
         }
         if err := c.ShouldBindJSON(&req); err != nil {
+                log.Printf("Login bind error: %v", err)
                 c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
                 return
         }
