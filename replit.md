@@ -174,7 +174,17 @@ Authentication uses JWT tokens. User sessions and UI preferences are managed via
   - clearTypingIndicators function resets all timers when switching conversations
   - Proper cleanup resets remote state to avoid stale data between calls
 
-- **Feed Page Improvements (Latest)**
+- **Profile Page Enhancements (Latest)**
+  - User profile viewing via /profile/:userId route
+  - Backend GET /api/users/:id/profile returns user data with is_subscribed, followers_count, following_count
+  - Backend GET /api/users/:id/stats returns followers_count, following_count, posts_count, friends_count
+  - optionalAuthMiddleware extracts user_id if present without requiring auth
+  - Subscribe/Unsubscribe buttons on other users' profiles
+  - Stats sidebar displays followers, following, friends, and posts counts for all profiles
+  - Optimistic UI updates for subscription state with local stats refresh
+  - Fixed isOwnProfile type comparison (string route param vs numeric user ID)
+
+- **Feed Page Improvements**
   - 5-star rating system for posts with StarRating component
   - Post filtering by All Posts, Following, Trending, and My Posts tabs
   - Following filter returns posts only from subscribed users (via Subscription table)
