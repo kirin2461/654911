@@ -1,11 +1,12 @@
 package billing
 
 import (
+	"backend/models"
 	"net/http"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
-	"github.com/kirin2461/Nemaxks/backend/models"
+	"gorm.io/gorm"
 )
 
 // PricingHandler handles all pricing-related API endpoints
