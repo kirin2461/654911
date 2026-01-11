@@ -65,10 +65,13 @@ export default function FeedPage() {
   const { user, isAuthenticated } = useStore();
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
   const [newPostContent, setNewPostContent] = useState("");
   const [selectedFilter, setSelectedFilter] = useState<
     "all" | "following" | "trending" | "my"
   >("all");
+  const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [showScrollTop, setShowScrollTop] = useState(false);
   const [commentModal, setCommentModal] = useState<{
     postId: string;
@@ -80,47 +83,101 @@ export default function FeedPage() {
   const [isUploading, setIsUploading] = useState(false);
   const [subscriptions, setSubscriptions] = useState<Set<string>>(new Set());
   const feedRef = useRef<HTMLDivElement>(null);
+  const loadMoreRef = useRef<HTMLDivElement>(null);
+  const POSTS_PER_PAGE = 20;
 
-  const loadPosts = async (filter?: string) => {
+  const normalizePost = (p: any): Post => ({
+    id: (p.id || "").toString(),
+    content: p.content || "",
+    created_at: p.created_at || new Date().toISOString(),
+    author: {
+      id: (p.author?.id || p.author_id || p.user_id || "").toString(),
+      username: p.author?.username || `user${p.user_id || 0}`,
+      alias: p.author?.alias,
+      avatar: p.author?.avatar,
+    },
+    reactions: {
+      likes: p.reactions?.likes || p.likes || 0,
+      comments: p.reactions?.comments || p.comments || 0,
+      shares: p.reactions?.shares || p.shares || 0,
+    },
+    tags: p.tags || [],
+    isLiked: p.is_liked || p.isLiked || false,
+    isBookmarked: p.is_bookmarked || p.isBookmarked || false,
+    averageRating: p.average_rating || p.averageRating || 0,
+    ratingCount: p.rating_count || p.ratingCount || 0,
+    userRating: p.user_rating || p.userRating || 0,
+  });
+
+  const loadPosts = async (filter?: string, tag?: string | null, append = false) => {
     try {
-      setLoading(true);
+      if (append) {
+        setLoadingMore(true);
+      } else {
+        setLoading(true);
+        setPosts([]);
+      }
+      
       const apiFilter = filter === "my" ? undefined : filter;
-      const data = await postsAPI.getPosts(apiFilter);
-      const normalizedData = (data || []).map((p: any) => ({
-        id: (p.id || "").toString(),
-        content: p.content || "",
-        created_at: p.created_at || new Date().toISOString(),
-        author: {
-          id: (p.author?.id || p.author_id || p.user_id || "").toString(),
-          username: p.author?.username || `user${p.user_id || 0}`,
-          alias: p.author?.alias,
-          avatar: p.author?.avatar,
-        },
-        reactions: {
-          likes: p.reactions?.likes || p.likes || 0,
-          comments: p.reactions?.comments || p.comments || 0,
-          shares: p.reactions?.shares || p.shares || 0,
-        },
-        tags: p.tags || [],
-        isLiked: p.is_liked || p.isLiked || false,
-        isBookmarked: p.is_bookmarked || p.isBookmarked || false,
-        averageRating: p.average_rating || p.averageRating || 0,
-        ratingCount: p.rating_count || p.ratingCount || 0,
-        userRating: p.user_rating || p.userRating || 0,
-      }));
-
-      setPosts(normalizedData);
+      const offset = append ? posts.length : 0;
+      
+      const data = await postsAPI.getPosts({
+        filter: apiFilter,
+        tag: tag || undefined,
+        limit: POSTS_PER_PAGE,
+        offset,
+      });
+      
+      const normalizedData = (data.posts || []).map(normalizePost);
+      
+      if (append) {
+        setPosts(prev => [...prev, ...normalizedData]);
+      } else {
+        setPosts(normalizedData);
+      }
+      setHasMore(data.has_more);
     } catch (err) {
       console.error("Failed to load posts:", err);
-      setPosts([]);
+      if (!append) setPosts([]);
+      setHasMore(false);
     } finally {
       setLoading(false);
+      setLoadingMore(false);
     }
   };
 
   useEffect(() => {
-    loadPosts(selectedFilter);
-  }, [selectedFilter]);
+    loadPosts(selectedFilter, selectedTag);
+  }, [selectedFilter, selectedTag]);
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMore && !loading && !loadingMore) {
+          loadPosts(selectedFilter, selectedTag, true);
+        }
+      },
+      { threshold: 0.1 }
+    );
+
+    if (loadMoreRef.current) {
+      observer.observe(loadMoreRef.current);
+    }
+
+    return () => observer.disconnect();
+  }, [hasMore, loading, loadingMore, selectedFilter, selectedTag, posts.length]);
+
+  const handleTagClick = (tag: string) => {
+    if (selectedTag === tag) {
+      setSelectedTag(null);
+    } else {
+      setSelectedTag(tag);
+    }
+  };
+
+  const clearTagFilter = () => {
+    setSelectedTag(null);
+  };
 
   useEffect(() => {
     const loadSubscriptions = async () => {
@@ -465,25 +522,39 @@ export default function FeedPage() {
     <Layout>
       <div className="h-full lg:h-screen flex flex-col lg:flex-row overflow-hidden bg-nebula">
         {/* Mobile Filter Tabs */}
-        <div className="lg:hidden flex overflow-x-auto gap-2 p-3 border-b border-border/50 bg-card/50 backdrop-blur-sm sticky top-0 z-10">
-          {filters.map((filter) => {
-            const Icon = filter.icon;
-            return (
+        <div className="lg:hidden flex flex-col gap-2 p-3 border-b border-border/50 bg-card/50 backdrop-blur-sm sticky top-0 z-10">
+          <div className="flex overflow-x-auto gap-2">
+            {filters.map((filter) => {
+              const Icon = filter.icon;
+              return (
+                <button
+                  key={filter.id}
+                  onClick={() => setSelectedFilter(filter.id)}
+                  className={cn(
+                    "flex items-center gap-2 px-3 py-2 rounded-lg whitespace-nowrap transition-all duration-300 text-sm",
+                    selectedFilter === filter.id
+                      ? "bg-primary/20 border border-primary/50"
+                      : "bg-accent/10 border border-transparent",
+                  )}
+                >
+                  <Icon className="w-4 h-4" />
+                  <span>{filter.label}</span>
+                </button>
+              );
+            })}
+          </div>
+          {selectedTag && (
+            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-primary/20 border border-primary/50">
+              <Hash className="w-4 h-4" />
+              <span className="text-sm">#{selectedTag}</span>
               <button
-                key={filter.id}
-                onClick={() => setSelectedFilter(filter.id)}
-                className={cn(
-                  "flex items-center gap-2 px-3 py-2 rounded-lg whitespace-nowrap transition-all duration-300 text-sm",
-                  selectedFilter === filter.id
-                    ? "bg-primary/20 border border-primary/50"
-                    : "bg-accent/10 border border-transparent",
-                )}
+                onClick={clearTagFilter}
+                className="ml-auto p-1 hover:bg-primary/30 rounded transition-colors"
               >
-                <Icon className="w-4 h-4" />
-                <span>{filter.label}</span>
+                <X className="w-3 h-3" />
               </button>
-            );
-          })}
+            </div>
+          )}
         </div>
 
         {/* Sidebar - Filters (Desktop only) */}
@@ -516,8 +587,28 @@ export default function FeedPage() {
             <h3 className="text-sm font-medium text-muted-foreground mb-2">
               Популярные теги
             </h3>
+            {selectedTag && (
+              <div className="mb-3 p-2 rounded-lg bg-primary/20 border border-primary/50">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm">Фильтр: #{selectedTag}</span>
+                  <button
+                    onClick={clearTagFilter}
+                    className="p-1 hover:bg-primary/30 rounded transition-colors"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            )}
             {["react", "webdev", "design", "typescript", "ai"].map((tag) => (
-              <button key={tag} className="badge-cosmic block w-full text-left">
+              <button
+                key={tag}
+                onClick={() => handleTagClick(tag)}
+                className={cn(
+                  "badge-cosmic block w-full text-left transition-colors",
+                  selectedTag === tag && "bg-primary/40 ring-1 ring-primary"
+                )}
+              >
                 #{tag}
               </button>
             ))}
@@ -783,9 +874,16 @@ export default function FeedPage() {
                   {post.tags && post.tags.length > 0 && (
                     <div className="flex flex-wrap gap-2 mb-4">
                       {post.tags.map((tag) => (
-                        <span key={tag} className="badge-cosmic">
+                        <button
+                          key={tag}
+                          onClick={() => handleTagClick(tag)}
+                          className={cn(
+                            "badge-cosmic cursor-pointer hover:bg-primary/30 transition-colors",
+                            selectedTag === tag && "bg-primary/40 ring-1 ring-primary"
+                          )}
+                        >
                           #{tag}
-                        </span>
+                        </button>
                       ))}
                     </div>
                   )}
@@ -867,8 +965,18 @@ export default function FeedPage() {
                 </article>
               ))}
 
+            {/* Loading More Indicator */}
+            <div ref={loadMoreRef} className="py-4">
+              {loadingMore && (
+                <div className="flex items-center justify-center gap-2 py-4">
+                  <Loader2 className="w-5 h-5 animate-spin text-primary" />
+                  <span className="text-muted-foreground text-sm">Загрузка...</span>
+                </div>
+              )}
+            </div>
+
             {/* End of Feed */}
-            {!loading && filteredPosts.length > 0 && (
+            {!loading && !hasMore && filteredPosts.length > 0 && (
               <div className="text-center py-8">
                 <div className="divider-cosmic" />
                 <p className="text-muted-foreground text-sm mt-6">

@@ -174,7 +174,17 @@ Authentication uses JWT tokens. User sessions and UI preferences are managed via
   - clearTypingIndicators function resets all timers when switching conversations
   - Proper cleanup resets remote state to avoid stale data between calls
 
-- **Monetization & Support System (Latest)**
+- **Feed Improvements (Latest)**
+  - Clickable tags on posts filter the feed by that tag
+  - Tag filter visible in sidebar and mobile header with clear button
+  - Infinite scroll using Intersection Observer for seamless pagination
+  - Backend pagination with limit/offset and has_more flag
+  - Loading spinner while fetching more posts
+  - "Вы достигли конца ленты" message when no more posts
+  - Premium page (/premium) for site-wide subscription purchases
+  - Premium link added to sidebar navigation with Crown icon
+
+- **Monetization & Support System**
   - SupportPage (/support/:userId) with donation and premium subscription options
   - PremiumPlan, UserPremium, CreatorDonation models in backend
   - Backend endpoints: GET /api/premium/plans, GET /api/users/:id/premium, POST /api/users/:id/donate, GET /api/users/:id/donations

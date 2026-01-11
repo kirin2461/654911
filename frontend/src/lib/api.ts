@@ -232,9 +232,17 @@ export const premiumAPI = {
       name: string;
       description: string;
       price_rub: number;
+      duration_days: number;
       features: string;
       is_active: boolean;
     }>>('/premium/plans'),
+  
+  getUserPremium: (userId: string) =>
+    request<{
+      has_premium: boolean;
+      plan_name?: string;
+      expires_at?: string;
+    }>(`/users/${userId}/premium`),
 };
 
 // Messages API (Consolidated)
@@ -723,7 +731,21 @@ export const friendsAPI = {
 
 // Posts API
 export const postsAPI = {
-  getPosts: (filter?: string) => request<Post[]>(filter ? `/posts?filter=${filter}` : "/posts"),
+  getPosts: async (options?: { filter?: string; tag?: string; limit?: number; offset?: number }) => {
+    const params = new URLSearchParams();
+    if (options?.filter) params.set('filter', options.filter);
+    if (options?.tag) params.set('tag', options.tag);
+    if (options?.limit) params.set('limit', String(options.limit));
+    if (options?.offset) params.set('offset', String(options.offset));
+    const queryString = params.toString();
+    const response = await request<{ posts: Post[]; has_more: boolean } | Post[]>(
+      `/posts${queryString ? `?${queryString}` : ''}`
+    );
+    if (Array.isArray(response)) {
+      return { posts: response, has_more: false };
+    }
+    return response;
+  },
 
   createPost: (data: {
     content: string;

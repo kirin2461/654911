@@ -49,9 +49,20 @@ func getICEServersHandler(c *gin.Context) {
 // Posts
 func getPostsHandler(c *gin.Context) {
         filter := c.Query("filter")
+        tag := c.Query("tag")
+        limitStr := c.DefaultQuery("limit", "20")
+        offsetStr := c.DefaultQuery("offset", "0")
+        
+        limit, _ := strconv.Atoi(limitStr)
+        offset, _ := strconv.Atoi(offsetStr)
+        if limit <= 0 || limit > 50 {
+                limit = 20
+        }
+        if offset < 0 {
+                offset = 0
+        }
         
         var posts []Post
-        query := db.Preload("Author")
         
         // Get current user ID if authenticated
         var currentUserID uint
@@ -59,32 +70,52 @@ func getPostsHandler(c *gin.Context) {
                 currentUserID = uint(userID.(float64))
         }
         
+        // Build base conditions that apply to both count and fetch queries
+        var followingIDs []uint
+        
         switch filter {
         case "following":
                 // Get posts from users the current user follows
                 if currentUserID > 0 {
-                        var followingIDs []uint
                         db.Model(&Subscription{}).Where("follower_id = ?", currentUserID).Pluck("following_id", &followingIDs)
-                        if len(followingIDs) > 0 {
-                                query = query.Where("author_id IN ?", followingIDs)
-                        } else {
-                                // No subscriptions, return empty posts array with same structure
-                                c.JSON(http.StatusOK, []map[string]interface{}{})
+                        if len(followingIDs) == 0 {
+                                c.JSON(http.StatusOK, gin.H{"posts": []map[string]interface{}{}, "has_more": false})
                                 return
                         }
                 } else {
-                        // Not authenticated, return empty
-                        c.JSON(http.StatusOK, []map[string]interface{}{})
+                        c.JSON(http.StatusOK, gin.H{"posts": []map[string]interface{}{}, "has_more": false})
                         return
                 }
+        }
+        
+        // Build query with conditions
+        query := db.Model(&Post{}).Preload("Author")
+        
+        // Apply tag filter
+        if tag != "" {
+                query = query.Where("tags LIKE ?", "%"+tag+"%")
+        }
+        
+        // Apply following filter
+        if filter == "following" && len(followingIDs) > 0 {
+                query = query.Where("author_id IN ?", followingIDs)
+        }
+        
+        // Apply ordering
+        switch filter {
         case "trending":
-                // Sort by engagement (likes count)
                 query = query.Order("likes DESC, created_at DESC")
         default:
                 query = query.Order("created_at DESC")
         }
         
-        query.Find(&posts)
+        // Fetch one extra to determine has_more
+        query.Limit(limit + 1).Offset(offset).Find(&posts)
+        
+        hasMore := len(posts) > limit
+        if hasMore {
+                posts = posts[:limit]
+        }
         
         // Enrich posts with rating info and user-specific data
         type PostResponse struct {
@@ -128,7 +159,10 @@ func getPostsHandler(c *gin.Context) {
                 response = append(response, pr)
         }
         
-        c.JSON(http.StatusOK, response)
+        c.JSON(http.StatusOK, gin.H{
+                "posts":    response,
+                "has_more": hasMore,
+        })
 }
 
 func createPostHandler(c *gin.Context) {
