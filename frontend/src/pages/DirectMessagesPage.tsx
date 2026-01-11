@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from "react";
+import { useParams } from "react-router-dom";
 import { useStore } from "../lib/store";
 import { messagesAPI } from "../lib/api";
-import Avatar from "../components/Avatar";
+import { Avatar } from "../components/Avatar";
 
 export interface DirectMessage {
   id: string;
@@ -13,7 +14,16 @@ export interface DirectMessage {
   updated_at?: string;
 }
 
+interface Message {
+  id: string;
+  sender_id?: string;
+  receiver_id?: string;
+  content: string;
+  created_at: string;
+}
+
 const DirectMessagesPage: React.FC = () => {
+  const { userId } = useParams<{ userId: string }>();
   const { user: currentUser } = useStore();
   const [messages, setMessages] = useState<DirectMessage[]>([]);
   const [newMessage, setNewMessage] = useState("");
@@ -26,7 +36,6 @@ const DirectMessagesPage: React.FC = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
-  // Load initial messages
   useEffect(() => {
     if (!userId || !currentUser?.id) return;
 
@@ -35,7 +44,7 @@ const DirectMessagesPage: React.FC = () => {
         setLoading(true);
         const response = await messagesAPI.getMessages(userId, 50, 0);
         if (Array.isArray(response)) {
-          setMessages(response);
+          setMessages(response as DirectMessage[]);
         }
       } catch (error) {
         console.error("Failed to load messages:", error);
@@ -47,12 +56,10 @@ const DirectMessagesPage: React.FC = () => {
     loadMessages();
   }, [userId, currentUser?.id]);
 
-  // Auto scroll to bottom when new messages arrive
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
 
-  // WebSocket connection for real-time messages
   useEffect(() => {
     if (!currentUser?.id || !userId) return;
 
@@ -80,14 +87,24 @@ const DirectMessagesPage: React.FC = () => {
           try {
             const data = JSON.parse(event.data);
             if (data.type === "message:new") {
-              setMessages((prev) => [...prev, data.message]);
+              const msg = data.message as Message;
+              setMessages((prev) => [...prev, {
+                ...msg,
+                sender_id: msg.sender_id || '',
+                receiver_id: msg.receiver_id || '',
+              } as DirectMessage]);
             } else if (data.type === "message:delete") {
               setMessages((prev) =>
                 prev.filter((m) => m.id !== data.messageId),
               );
             } else if (data.type === "message:edit") {
+              const msg = data.message as Message;
               setMessages((prev) =>
-                prev.map((m) => (m.id === data.message.id ? data.message : m)),
+                prev.map((m) => (m.id === msg.id ? {
+                  ...msg,
+                  sender_id: msg.sender_id || m.sender_id,
+                  receiver_id: msg.receiver_id || m.receiver_id,
+                } as DirectMessage : m)),
               );
             } else if (data.type === "typing") {
               setTyping(true);
@@ -126,7 +143,7 @@ const DirectMessagesPage: React.FC = () => {
 
     try {
       const message = await messagesAPI.sendMessage(userId, newMessage);
-      setMessages((prev) => [...prev, message]);
+      setMessages((prev) => [...prev, message as DirectMessage]);
       setNewMessage("");
     } catch (error) {
       console.error("Failed to send message:", error);
@@ -147,7 +164,7 @@ const DirectMessagesPage: React.FC = () => {
     try {
       const updated = await messagesAPI.updateMessage(messageId, newContent);
       setMessages((prev) =>
-        prev.map((m) => (m.id === messageId ? updated : m)),
+        prev.map((m) => (m.id === messageId ? updated as DirectMessage : m)),
       );
     } catch (error) {
       console.error("Failed to update message:", error);
