@@ -71,10 +71,9 @@ func main() {
                 corsConfig.AllowOrigins = []string{frontendURL}
                 corsConfig.AllowCredentials = true
         } else {
-                // Development: allow all origins but without credentials
-                // Note: AllowCredentials cannot be true when AllowAllOrigins is true
+                // Development: allow all origins
                 corsConfig.AllowAllOrigins = true
-                corsConfig.AllowCredentials = false
+                corsConfig.AllowCredentials = true
                 log.Println("WARNING: FRONTEND_URL not set, CORS allows all origins (development mode)")
         }
 
