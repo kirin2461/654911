@@ -14,6 +14,7 @@ require (
 	github.com/livekit/protocol v1.23.1-0.20241003084409-2406243b2f49
 	github.com/livekit/server-sdk-go/v2 v2.3.0
 	github.com/redis/go-redis/v9 v9.7.0
+	github.com/robfig/cron/v3 v3.0.1
 	golang.org/x/crypto v0.41.0
 	google.golang.org/grpc v1.67.1
 	gorm.io/driver/postgres v1.6.0
