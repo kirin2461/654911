@@ -1,10 +1,10 @@
 package billing
 
 import (
-	"backend/models"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/kirin2461/Nemaxks/backend/models"
 	"gorm.io/gorm"
 )
 
