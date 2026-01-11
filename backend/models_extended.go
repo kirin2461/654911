@@ -593,13 +593,16 @@ type PremiumSubscription struct {
         User                 User       `gorm:"foreignKey:UserID" json:"user,omitempty"`
         PlanID               uint       `json:"plan_id"`
         Plan                 PremiumPlan `gorm:"foreignKey:PlanID" json:"plan,omitempty"`
-        Status               string     `gorm:"size:20;default:'active'" json:"status"` // active, cancelled, expired, past_due
+        Status               string     `gorm:"size:20;default:'active'" json:"status"` // active, cancelled, expired, past_due, trialing
         CurrentPeriodStart   time.Time  `json:"current_period_start"`
         CurrentPeriodEnd     time.Time  `json:"current_period_end"`
+        TrialEnd             *time.Time `json:"trial_end,omitempty"`
+        IsTrialing           bool       `gorm:"default:false" json:"is_trialing"`
         AutoRenew            bool       `gorm:"default:true" json:"auto_renew"`
         CancelAtPeriodEnd    bool       `gorm:"default:false" json:"cancel_at_period_end"`
         CancelledAt          *time.Time `json:"cancelled_at,omitempty"`
         PaymentMethodID      string     `json:"payment_method_id,omitempty"` // YooKassa saved payment method
+        GiftCodeID           *uint      `json:"gift_code_id,omitempty"`
         CreatedAt            time.Time  `json:"created_at"`
         UpdatedAt            time.Time  `json:"updated_at"`
 }
@@ -612,6 +615,8 @@ type PremiumTransaction struct {
         SubscriptionID  *uint      `gorm:"index" json:"subscription_id,omitempty"`
         PlanID          uint       `json:"plan_id"`
         AmountRub       float64    `json:"amount_rub"`
+        DiscountRub     float64    `json:"discount_rub"`
+        PromoCodeID     *uint      `json:"promo_code_id,omitempty"`
         Currency        string     `gorm:"size:3;default:'RUB'" json:"currency"`
         Status          string     `gorm:"size:20;default:'pending'" json:"status"` // pending, succeeded, failed, refunded
         PaymentProvider string     `gorm:"size:30" json:"payment_provider"` // yookassa, manual_transfer
@@ -620,6 +625,51 @@ type PremiumTransaction struct {
         ConfirmationURL string     `json:"confirmation_url,omitempty"`
         CompletedAt     *time.Time `json:"completed_at,omitempty"`
         CreatedAt       time.Time  `json:"created_at"`
+}
+
+// Promo Code for discounts
+type PromoCode struct {
+        ID              uint       `gorm:"primaryKey" json:"id"`
+        Code            string     `gorm:"uniqueIndex;size:50" json:"code"`
+        Description     string     `json:"description"`
+        DiscountType    string     `gorm:"size:20" json:"discount_type"` // percent, fixed
+        DiscountValue   float64    `json:"discount_value"`
+        MaxUses         int        `json:"max_uses"`
+        UsedCount       int        `gorm:"default:0" json:"used_count"`
+        MinPurchase     float64    `json:"min_purchase"`
+        ValidFrom       time.Time  `json:"valid_from"`
+        ValidUntil      time.Time  `json:"valid_until"`
+        ApplicablePlans string     `gorm:"type:text" json:"applicable_plans"` // JSON array of plan IDs, empty = all
+        IsActive        bool       `gorm:"default:true" json:"is_active"`
+        CreatedBy       uint       `json:"created_by"`
+        CreatedAt       time.Time  `json:"created_at"`
+}
+
+// Promo Code Usage tracking
+type PromoCodeUsage struct {
+        ID          uint      `gorm:"primaryKey" json:"id"`
+        PromoCodeID uint      `gorm:"index" json:"promo_code_id"`
+        UserID      uint      `gorm:"index" json:"user_id"`
+        TransactionID uint    `json:"transaction_id"`
+        DiscountRub float64   `json:"discount_rub"`
+        CreatedAt   time.Time `json:"created_at"`
+}
+
+// Gift Subscription
+type GiftSubscription struct {
+        ID            uint       `gorm:"primaryKey" json:"id"`
+        Code          string     `gorm:"uniqueIndex;size:50" json:"code"`
+        FromUserID    uint       `gorm:"index" json:"from_user_id"`
+        ToUserID      *uint      `gorm:"index" json:"to_user_id,omitempty"`
+        PlanID        uint       `json:"plan_id"`
+        Plan          PremiumPlan `gorm:"foreignKey:PlanID" json:"plan,omitempty"`
+        DurationDays  int        `json:"duration_days"`
+        Message       string     `gorm:"type:text" json:"message"`
+        Status        string     `gorm:"size:20;default:'pending'" json:"status"` // pending, redeemed, expired
+        TransactionID *uint      `json:"transaction_id,omitempty"`
+        RedeemedAt    *time.Time `json:"redeemed_at,omitempty"`
+        ExpiresAt     time.Time  `json:"expires_at"`
+        CreatedAt     time.Time  `json:"created_at"`
 }
 
 

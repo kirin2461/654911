@@ -239,6 +239,20 @@ func main() {
         r.POST("/api/users/:id/donate", optionalAuthMiddleware(), createDonationHandler)
         r.GET("/api/users/:id/donations", getUserDonationsHandler)
         
+        // Promo Codes
+        r.GET("/api/promo/validate", validatePromoCodeHandler)
+        r.GET("/api/admin/promo-codes", authMiddleware(), getPromoCodesHandler)
+        r.POST("/api/admin/promo-codes", authMiddleware(), createPromoCodeHandler)
+        r.DELETE("/api/admin/promo-codes/:id", authMiddleware(), deletePromoCodeHandler)
+        
+        // Trial Period
+        r.POST("/api/premium/trial", authMiddleware(), startTrialHandler)
+        
+        // Gift Subscriptions
+        r.POST("/api/gifts/purchase", authMiddleware(), purchaseGiftHandler)
+        r.POST("/api/gifts/redeem", authMiddleware(), redeemGiftHandler)
+        r.GET("/api/gifts/my", authMiddleware(), getUserGiftsHandler)
+        
         // Billing webhooks (no auth - external service)
         r.POST("/api/billing/yookassa/webhook", yookassaWebhookHandler)
 

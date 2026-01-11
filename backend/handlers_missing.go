@@ -8,6 +8,7 @@ import (
         "time"
 
         "github.com/gin-gonic/gin"
+        "gorm.io/gorm"
 )
 
 // Messages
@@ -644,37 +645,94 @@ func checkoutPremiumHandler(c *gin.Context) {
         uid := uint(userID.(float64))
         
         var req struct {
-                PlanID int `json:"plan_id" binding:"required"`
+                PlanID    int    `json:"plan_id" binding:"required"`
+                PromoCode string `json:"promo_code"`
         }
         if err := c.BindJSON(&req); err != nil {
                 c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
                 return
         }
         
-        // Check if user already has active subscription
         var existingSub PremiumSubscription
         if db.Where("user_id = ? AND status = ?", uid, "active").First(&existingSub).RowsAffected > 0 {
                 c.JSON(http.StatusBadRequest, gin.H{"error": "Already have active subscription"})
                 return
         }
         
-        // Get plan
         var plan PremiumPlan
         if db.First(&plan, req.PlanID).RowsAffected == 0 {
                 c.JSON(http.StatusNotFound, gin.H{"error": "Plan not found"})
                 return
         }
         
-        // Create pending transaction
+        finalAmount := plan.PriceRub
+        var discountRub float64
+        var promoCodeID *uint
+        
+        if req.PromoCode != "" {
+                discount, promo, _ := applyPromoCode(req.PromoCode, uint(req.PlanID), uid)
+                if promo != nil {
+                        discountRub = discount
+                        finalAmount = plan.PriceRub - discount
+                        promoCodeID = &promo.ID
+                        if finalAmount < 0 {
+                                finalAmount = 0
+                        }
+                }
+        }
+        
         transaction := PremiumTransaction{
                 UserID:          uid,
                 PlanID:          uint(req.PlanID),
-                AmountRub:       plan.PriceRub,
+                AmountRub:       finalAmount,
+                DiscountRub:     discountRub,
+                PromoCodeID:     promoCodeID,
                 Status:          "pending",
                 PaymentProvider: "yookassa",
                 Description:     "Premium subscription: " + plan.Name,
         }
         db.Create(&transaction)
+        
+        if finalAmount == 0 && promoCodeID != nil {
+                now := time.Now()
+                periodEnd := now.AddDate(0, 1, 0)
+                if plan.BillingCycle == "quarterly" {
+                        periodEnd = now.AddDate(0, 3, 0)
+                } else if plan.BillingCycle == "annual" {
+                        periodEnd = now.AddDate(1, 0, 0)
+                }
+                
+                db.Model(&transaction).Updates(map[string]interface{}{
+                        "status":       "succeeded",
+                        "completed_at": now,
+                })
+                
+                sub := PremiumSubscription{
+                        UserID:             uid,
+                        PlanID:             uint(req.PlanID),
+                        Status:             "active",
+                        CurrentPeriodStart: now,
+                        CurrentPeriodEnd:   periodEnd,
+                        AutoRenew:          true,
+                }
+                db.Create(&sub)
+                db.Model(&transaction).Update("subscription_id", sub.ID)
+                
+                db.Model(&PromoCode{}).Where("id = ?", *promoCodeID).Update("used_count", gorm.Expr("used_count + 1"))
+                db.Create(&PromoCodeUsage{
+                        PromoCodeID:   *promoCodeID,
+                        UserID:        uid,
+                        TransactionID: transaction.ID,
+                        DiscountRub:   discountRub,
+                })
+                
+                c.JSON(http.StatusOK, gin.H{
+                        "payment_id": transaction.ID,
+                        "status":     "free_with_promo",
+                        "message":    "Subscription activated with 100% discount",
+                })
+                return
+        }
         
         if yookassaService == nil {
                 c.JSON(http.StatusOK, gin.H{
@@ -692,7 +750,7 @@ func checkoutPremiumHandler(c *gin.Context) {
         
         payment, err := yookassaService.CreatePayment(
                 transaction.ID,
-                plan.PriceRub,
+                finalAmount,
                 "Подписка "+plan.Name,
                 returnURL+"/premium?status=success",
                 true,
@@ -709,9 +767,22 @@ func checkoutPremiumHandler(c *gin.Context) {
                 "confirmation_url":    payment.Confirmation.ConfirmationURL,
         })
         
+        if promoCodeID != nil {
+                db.Model(&PromoCode{}).Where("id = ?", *promoCodeID).Update("used_count", gorm.Expr("used_count + 1"))
+                db.Create(&PromoCodeUsage{
+                        PromoCodeID:   *promoCodeID,
+                        UserID:        uid,
+                        TransactionID: transaction.ID,
+                        DiscountRub:   discountRub,
+                })
+        }
+        
         c.JSON(http.StatusOK, gin.H{
                 "payment_id":       transaction.ID,
                 "confirmation_url": payment.Confirmation.ConfirmationURL,
+                "original_price":   plan.PriceRub,
+                "discount":         discountRub,
+                "final_price":      finalAmount,
         })
 }
 
@@ -1027,5 +1098,431 @@ func getAdminBillingStatsHandler(c *gin.Context) {
                 "churn_rate":              churnRate,
                 "recent_transactions":     txList,
         })
+}
+
+// Promo Code Handlers
+func validatePromoCodeHandler(c *gin.Context) {
+        code := c.Query("code")
+        planIDStr := c.Query("plan_id")
+        
+        if code == "" {
+                c.JSON(http.StatusBadRequest, gin.H{"error": "Promo code required"})
+                return
+        }
+        
+        var promo PromoCode
+        if db.Where("code = ? AND is_active = ?", code, true).First(&promo).RowsAffected == 0 {
+                c.JSON(http.StatusNotFound, gin.H{"error": "Invalid promo code"})
+                return
+        }
+        
+        now := time.Now()
+        if now.Before(promo.ValidFrom) || now.After(promo.ValidUntil) {
+                c.JSON(http.StatusBadRequest, gin.H{"error": "Promo code expired"})
+                return
+        }
+        
+        if promo.MaxUses > 0 && promo.UsedCount >= promo.MaxUses {
+                c.JSON(http.StatusBadRequest, gin.H{"error": "Promo code usage limit reached"})
+                return
+        }
+        
+        var plan PremiumPlan
+        if planIDStr != "" {
+                planID, _ := strconv.ParseUint(planIDStr, 10, 32)
+                if db.First(&plan, planID).RowsAffected > 0 {
+                        if plan.PriceRub < promo.MinPurchase {
+                                c.JSON(http.StatusBadRequest, gin.H{"error": "Minimum purchase not met"})
+                                return
+                        }
+                }
+        }
+        
+        c.JSON(http.StatusOK, gin.H{
+                "valid":          true,
+                "discount_type":  promo.DiscountType,
+                "discount_value": promo.DiscountValue,
+                "description":    promo.Description,
+        })
+}
+
+func applyPromoCode(code string, planID uint, userID uint) (float64, *PromoCode, error) {
+        var promo PromoCode
+        if db.Where("code = ? AND is_active = ?", code, true).First(&promo).RowsAffected == 0 {
+                return 0, nil, nil
+        }
+        
+        now := time.Now()
+        if now.Before(promo.ValidFrom) || now.After(promo.ValidUntil) {
+                return 0, nil, nil
+        }
+        
+        if promo.MaxUses > 0 && promo.UsedCount >= promo.MaxUses {
+                return 0, nil, nil
+        }
+        
+        var existing PromoCodeUsage
+        if db.Where("promo_code_id = ? AND user_id = ?", promo.ID, userID).First(&existing).RowsAffected > 0 {
+                return 0, nil, nil
+        }
+        
+        var plan PremiumPlan
+        if db.First(&plan, planID).RowsAffected == 0 {
+                return 0, nil, nil
+        }
+        
+        if plan.PriceRub < promo.MinPurchase {
+                return 0, nil, nil
+        }
+        
+        var discount float64
+        if promo.DiscountType == "percent" {
+                discount = plan.PriceRub * (promo.DiscountValue / 100)
+        } else {
+                discount = promo.DiscountValue
+        }
+        
+        if discount > plan.PriceRub {
+                discount = plan.PriceRub
+        }
+        
+        return discount, &promo, nil
+}
+
+func createPromoCodeHandler(c *gin.Context) {
+        userID, _ := c.Get("user_id")
+        uid := uint(userID.(float64))
+        
+        var user User
+        if db.First(&user, uid).RowsAffected == 0 || user.Role != "admin" {
+                c.JSON(http.StatusForbidden, gin.H{"error": "Admin only"})
+                return
+        }
+        
+        var req struct {
+                Code            string  `json:"code" binding:"required"`
+                Description     string  `json:"description"`
+                DiscountType    string  `json:"discount_type" binding:"required"`
+                DiscountValue   float64 `json:"discount_value" binding:"required"`
+                MaxUses         int     `json:"max_uses"`
+                MinPurchase     float64 `json:"min_purchase"`
+                ValidFrom       string  `json:"valid_from"`
+                ValidUntil      string  `json:"valid_until"`
+                ApplicablePlans string  `json:"applicable_plans"`
+        }
+        if err := c.BindJSON(&req); err != nil {
+                c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+                return
+        }
+        
+        validFrom := time.Now()
+        validUntil := time.Now().AddDate(1, 0, 0)
+        
+        if req.ValidFrom != "" {
+                if t, err := time.Parse("2006-01-02", req.ValidFrom); err == nil {
+                        validFrom = t
+                }
+        }
+        if req.ValidUntil != "" {
+                if t, err := time.Parse("2006-01-02", req.ValidUntil); err == nil {
+                        validUntil = t
+                }
+        }
+        
+        promo := PromoCode{
+                Code:            req.Code,
+                Description:     req.Description,
+                DiscountType:    req.DiscountType,
+                DiscountValue:   req.DiscountValue,
+                MaxUses:         req.MaxUses,
+                MinPurchase:     req.MinPurchase,
+                ValidFrom:       validFrom,
+                ValidUntil:      validUntil,
+                ApplicablePlans: req.ApplicablePlans,
+                IsActive:        true,
+                CreatedBy:       uid,
+        }
+        
+        if err := db.Create(&promo).Error; err != nil {
+                c.JSON(http.StatusBadRequest, gin.H{"error": "Code already exists"})
+                return
+        }
+        
+        c.JSON(http.StatusCreated, promo)
+}
+
+func getPromoCodesHandler(c *gin.Context) {
+        userID, _ := c.Get("user_id")
+        uid := uint(userID.(float64))
+        
+        var user User
+        if db.First(&user, uid).RowsAffected == 0 || user.Role != "admin" {
+                c.JSON(http.StatusForbidden, gin.H{"error": "Admin only"})
+                return
+        }
+        
+        var promos []PromoCode
+        db.Order("created_at DESC").Find(&promos)
+        c.JSON(http.StatusOK, promos)
+}
+
+func deletePromoCodeHandler(c *gin.Context) {
+        userID, _ := c.Get("user_id")
+        uid := uint(userID.(float64))
+        
+        var user User
+        if db.First(&user, uid).RowsAffected == 0 || user.Role != "admin" {
+                c.JSON(http.StatusForbidden, gin.H{"error": "Admin only"})
+                return
+        }
+        
+        promoID := c.Param("id")
+        db.Model(&PromoCode{}).Where("id = ?", promoID).Update("is_active", false)
+        c.JSON(http.StatusOK, gin.H{"status": "deleted"})
+}
+
+// Trial Period Handler
+func startTrialHandler(c *gin.Context) {
+        userID, _ := c.Get("user_id")
+        uid := uint(userID.(float64))
+        
+        var req struct {
+                PlanID uint `json:"plan_id" binding:"required"`
+        }
+        if err := c.BindJSON(&req); err != nil {
+                c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+                return
+        }
+        
+        var existingSub PremiumSubscription
+        if db.Where("user_id = ?", uid).First(&existingSub).RowsAffected > 0 {
+                c.JSON(http.StatusBadRequest, gin.H{"error": "Already have subscription"})
+                return
+        }
+        
+        var plan PremiumPlan
+        if db.First(&plan, req.PlanID).RowsAffected == 0 {
+                c.JSON(http.StatusNotFound, gin.H{"error": "Plan not found"})
+                return
+        }
+        
+        now := time.Now()
+        trialEnd := now.AddDate(0, 0, 7)
+        
+        sub := PremiumSubscription{
+                UserID:             uid,
+                PlanID:             req.PlanID,
+                Status:             "trialing",
+                CurrentPeriodStart: now,
+                CurrentPeriodEnd:   trialEnd,
+                TrialEnd:           &trialEnd,
+                IsTrialing:         true,
+                AutoRenew:          false,
+        }
+        db.Create(&sub)
+        
+        c.JSON(http.StatusCreated, gin.H{
+                "message":   "Trial started",
+                "trial_end": trialEnd,
+                "plan":      plan.Name,
+        })
+}
+
+// Gift Subscription Handlers
+func purchaseGiftHandler(c *gin.Context) {
+        userID, _ := c.Get("user_id")
+        uid := uint(userID.(float64))
+        
+        var req struct {
+                PlanID       uint   `json:"plan_id" binding:"required"`
+                DurationDays int    `json:"duration_days"`
+                Message      string `json:"message"`
+                RecipientID  *uint  `json:"recipient_id"`
+        }
+        if err := c.BindJSON(&req); err != nil {
+                c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+                return
+        }
+        
+        var plan PremiumPlan
+        if db.First(&plan, req.PlanID).RowsAffected == 0 {
+                c.JSON(http.StatusNotFound, gin.H{"error": "Plan not found"})
+                return
+        }
+        
+        if req.DurationDays <= 0 {
+                if plan.BillingCycle == "monthly" {
+                        req.DurationDays = 30
+                } else if plan.BillingCycle == "quarterly" {
+                        req.DurationDays = 90
+                } else {
+                        req.DurationDays = 365
+                }
+        }
+        
+        giftCode := generateGiftCode()
+        
+        gift := GiftSubscription{
+                Code:         giftCode,
+                FromUserID:   uid,
+                ToUserID:     req.RecipientID,
+                PlanID:       req.PlanID,
+                DurationDays: req.DurationDays,
+                Message:      req.Message,
+                Status:       "pending",
+                ExpiresAt:    time.Now().AddDate(1, 0, 0),
+        }
+        
+        transaction := PremiumTransaction{
+                UserID:          uid,
+                PlanID:          req.PlanID,
+                AmountRub:       plan.PriceRub,
+                Status:          "pending",
+                PaymentProvider: "yookassa",
+                Description:     "Gift: " + plan.Name,
+        }
+        db.Create(&transaction)
+        
+        gift.TransactionID = &transaction.ID
+        db.Create(&gift)
+        
+        if yookassaService != nil {
+                returnURL := os.Getenv("APP_URL")
+                if returnURL == "" {
+                        returnURL = "https://nemaks.com"
+                }
+                
+                payment, err := yookassaService.CreatePayment(
+                        transaction.ID,
+                        plan.PriceRub,
+                        "Подарочная подписка "+plan.Name,
+                        returnURL+"/gifts?code="+giftCode,
+                        false,
+                )
+                if err != nil {
+                        c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+                        return
+                }
+                
+                db.Model(&transaction).Updates(map[string]interface{}{
+                        "provider_payment_id": payment.ID,
+                        "confirmation_url":    payment.Confirmation.ConfirmationURL,
+                })
+                
+                c.JSON(http.StatusOK, gin.H{
+                        "gift_code":        giftCode,
+                        "confirmation_url": payment.Confirmation.ConfirmationURL,
+                })
+                return
+        }
+        
+        c.JSON(http.StatusOK, gin.H{
+                "gift_code": giftCode,
+                "message":   "Payment system not configured",
+        })
+}
+
+func redeemGiftHandler(c *gin.Context) {
+        userID, _ := c.Get("user_id")
+        uid := uint(userID.(float64))
+        
+        var req struct {
+                Code string `json:"code" binding:"required"`
+        }
+        if err := c.BindJSON(&req); err != nil {
+                c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+                return
+        }
+        
+        var gift GiftSubscription
+        if db.Preload("Plan").Where("code = ?", req.Code).First(&gift).RowsAffected == 0 {
+                c.JSON(http.StatusNotFound, gin.H{"error": "Gift code not found"})
+                return
+        }
+        
+        if gift.Status != "pending" {
+                c.JSON(http.StatusBadRequest, gin.H{"error": "Gift already redeemed or expired"})
+                return
+        }
+        
+        if time.Now().After(gift.ExpiresAt) {
+                db.Model(&gift).Update("status", "expired")
+                c.JSON(http.StatusBadRequest, gin.H{"error": "Gift code expired"})
+                return
+        }
+        
+        if gift.TransactionID != nil {
+                var tx PremiumTransaction
+                if db.First(&tx, *gift.TransactionID).RowsAffected > 0 && tx.Status != "succeeded" {
+                        c.JSON(http.StatusBadRequest, gin.H{"error": "Gift not yet paid for"})
+                        return
+                }
+        }
+        
+        now := time.Now()
+        periodEnd := now.AddDate(0, 0, gift.DurationDays)
+        
+        var existingSub PremiumSubscription
+        if db.Where("user_id = ?", uid).First(&existingSub).RowsAffected > 0 {
+                if existingSub.CurrentPeriodEnd.After(now) {
+                        periodEnd = existingSub.CurrentPeriodEnd.AddDate(0, 0, gift.DurationDays)
+                }
+                db.Model(&existingSub).Updates(map[string]interface{}{
+                        "plan_id":              gift.PlanID,
+                        "status":               "active",
+                        "current_period_end":   periodEnd,
+                        "gift_code_id":         gift.ID,
+                        "cancel_at_period_end": false,
+                })
+        } else {
+                sub := PremiumSubscription{
+                        UserID:             uid,
+                        PlanID:             gift.PlanID,
+                        Status:             "active",
+                        CurrentPeriodStart: now,
+                        CurrentPeriodEnd:   periodEnd,
+                        AutoRenew:          false,
+                        GiftCodeID:         &gift.ID,
+                }
+                db.Create(&sub)
+        }
+        
+        db.Model(&gift).Updates(map[string]interface{}{
+                "to_user_id":  uid,
+                "status":      "redeemed",
+                "redeemed_at": now,
+        })
+        
+        c.JSON(http.StatusOK, gin.H{
+                "message":    "Gift redeemed successfully",
+                "plan":       gift.Plan.Name,
+                "expires_at": periodEnd,
+        })
+}
+
+func getUserGiftsHandler(c *gin.Context) {
+        userID, _ := c.Get("user_id")
+        uid := uint(userID.(float64))
+        
+        var sentGifts []GiftSubscription
+        db.Preload("Plan").Where("from_user_id = ?", uid).Order("created_at DESC").Find(&sentGifts)
+        
+        var receivedGifts []GiftSubscription
+        db.Preload("Plan").Where("to_user_id = ?", uid).Order("created_at DESC").Find(&receivedGifts)
+        
+        c.JSON(http.StatusOK, gin.H{
+                "sent":     sentGifts,
+                "received": receivedGifts,
+        })
+}
+
+func generateGiftCode() string {
+        const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+        code := "GIFT-"
+        for i := 0; i < 8; i++ {
+                code += string(chars[time.Now().UnixNano()%int64(len(chars))])
+                time.Sleep(time.Nanosecond)
+        }
+        return code
 }
 
