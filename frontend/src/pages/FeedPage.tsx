@@ -4,7 +4,8 @@ import { Avatar } from "@/components/Avatar";
 import { Stories } from "@/components/Stories";
 import { MediaUpload } from "@/components/MediaUpload";
 import { useStore } from "@/lib/store";
-import { postsAPI, uploadAPI } from "@/lib/api";
+import { postsAPI, uploadAPI, ratingsAPI } from "@/lib/api";
+import { StarRating } from "@/components/StarRating";
 import {
   Heart,
   MessageCircle,
@@ -48,6 +49,9 @@ interface Post {
   isLiked?: boolean;
   isBookmarked?: boolean;
   created_at: string;
+  averageRating?: number;
+  ratingCount?: number;
+  userRating?: number;
 }
 
 
@@ -77,16 +81,17 @@ export default function FeedPage() {
   const [subscriptions, setSubscriptions] = useState<Set<string>>(new Set());
   const feedRef = useRef<HTMLDivElement>(null);
 
-  const loadPosts = async () => {
+  const loadPosts = async (filter?: string) => {
     try {
       setLoading(true);
-      const data = await postsAPI.getPosts();
+      const apiFilter = filter === "my" ? undefined : filter;
+      const data = await postsAPI.getPosts(apiFilter);
       const normalizedData = (data || []).map((p: any) => ({
         id: (p.id || "").toString(),
         content: p.content || "",
         created_at: p.created_at || new Date().toISOString(),
         author: {
-          id: (p.author?.id || p.user_id || "").toString(),
+          id: (p.author?.id || p.author_id || p.user_id || "").toString(),
           username: p.author?.username || `user${p.user_id || 0}`,
           alias: p.author?.alias,
           avatar: p.author?.avatar,
@@ -97,8 +102,11 @@ export default function FeedPage() {
           shares: p.reactions?.shares || p.shares || 0,
         },
         tags: p.tags || [],
-        isLiked: p.isLiked || false,
-        isBookmarked: p.isBookmarked || false,
+        isLiked: p.is_liked || p.isLiked || false,
+        isBookmarked: p.is_bookmarked || p.isBookmarked || false,
+        averageRating: p.average_rating || p.averageRating || 0,
+        ratingCount: p.rating_count || p.ratingCount || 0,
+        userRating: p.user_rating || p.userRating || 0,
       }));
 
       setPosts(normalizedData);
@@ -111,8 +119,27 @@ export default function FeedPage() {
   };
 
   useEffect(() => {
-    loadPosts();
-  }, []);
+    loadPosts(selectedFilter);
+  }, [selectedFilter]);
+
+  useEffect(() => {
+    const loadSubscriptions = async () => {
+      if (!isAuthenticated) return;
+      try {
+        const subs = await postsAPI.getSubscriptions();
+        const subIds = new Set((subs || []).map((s: any) => {
+          if (typeof s === 'object') {
+            return (s.following_id || s.user_id || s.id)?.toString();
+          }
+          return s?.toString();
+        }).filter(Boolean));
+        setSubscriptions(subIds);
+      } catch (error) {
+        console.error("Failed to load subscriptions:", error);
+      }
+    };
+    loadSubscriptions();
+  }, [isAuthenticated]);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -394,6 +421,43 @@ export default function FeedPage() {
     } catch (error) {
       console.error("Failed to bookmark post:", error);
       setPosts(posts);
+    }
+  };
+
+  const handleRating = async (postId: string, rating: number) => {
+    try {
+      const post = posts.find((p) => p.id === postId);
+      if (!post) return;
+      
+      const hadPreviousRating = post.userRating !== undefined && post.userRating !== null && post.userRating > 0;
+      const prevRating = post.userRating || 0;
+      const prevCount = post.ratingCount || 0;
+      const prevAvg = post.averageRating || 0;
+      
+      let newAvg: number;
+      let newCount: number;
+      
+      if (hadPreviousRating) {
+        newCount = prevCount;
+        newAvg = prevCount > 0 
+          ? (prevAvg * prevCount - prevRating + rating) / prevCount 
+          : rating;
+      } else {
+        newCount = prevCount + 1;
+        newAvg = (prevAvg * prevCount + rating) / newCount;
+      }
+      
+      const updatedPosts = posts.map((p) =>
+        p.id === postId
+          ? { ...p, userRating: rating, averageRating: newAvg, ratingCount: newCount }
+          : p
+      );
+      setPosts(updatedPosts);
+      
+      await ratingsAPI.ratePost(postId, rating);
+    } catch (error) {
+      console.error("Failed to rate post:", error);
+      loadPosts(selectedFilter);
     }
   };
 
@@ -725,6 +789,21 @@ export default function FeedPage() {
                       ))}
                     </div>
                   )}
+
+                  {/* Rating */}
+                  <div className="flex items-center gap-3 mb-4">
+                    <StarRating
+                      rating={post.userRating || 0}
+                      interactive={isAuthenticated}
+                      size="md"
+                      onRate={(rating) => handleRating(post.id, rating)}
+                    />
+                    {(post.ratingCount || 0) > 0 && (
+                      <span className="text-sm text-muted-foreground">
+                        {(post.averageRating || 0).toFixed(1)} ({post.ratingCount})
+                      </span>
+                    )}
+                  </div>
 
                   {/* Post Actions */}
                   <div className="flex items-center gap-6 pt-4 border-t border-border/30">

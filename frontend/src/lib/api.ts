@@ -649,7 +649,7 @@ export const friendsAPI = {
 
 // Posts API
 export const postsAPI = {
-  getPosts: () => request<Post[]>("/posts"),
+  getPosts: (filter?: string) => request<Post[]>(filter ? `/posts?filter=${filter}` : "/posts"),
 
   createPost: (data: {
     content: string;
