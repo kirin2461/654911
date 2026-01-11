@@ -163,7 +163,7 @@ Authentication uses JWT tokens. User sessions and UI preferences are managed via
   - State synchronization sent on call connect and when toggling mute/video
   - AudioContext reuse to prevent browser resource exhaustion (single instance per component)
 
-- **Call Termination & Real-time Messaging Improvements (Latest)**
+- **Call Termination & Real-time Messaging Improvements**
   - VideoCallPage now listens for `remote-call-end` custom event to properly handle call termination
   - Improved audio quality settings: 48kHz sample rate, 16-bit sample size, mono channel
   - MessagesPage subscribes to WebSocket for real-time message updates via subscribeToMessages hook
@@ -173,3 +173,13 @@ Authentication uses JWT tokens. User sessions and UI preferences are managed via
   - Backend routes "typing" WebSocket messages to target users
   - clearTypingIndicators function resets all timers when switching conversations
   - Proper cleanup resets remote state to avoid stale data between calls
+
+- **Feed Page Improvements (Latest)**
+  - 5-star rating system for posts with StarRating component
+  - Post filtering by All Posts, Following, Trending, and My Posts tabs
+  - Following filter returns posts only from subscribed users (via Subscription table)
+  - Trending filter sorts posts by likes count descending
+  - Subscribe/unsubscribe buttons show correct state based on user subscriptions
+  - Subscription handlers with proper authentication validation
+  - Optimistic UI updates for ratings with rollback on error
+  - Post enrichment with rating averages, counts, and user-specific interaction data
