@@ -196,7 +196,7 @@ const DirectMessagesPage: React.FC = () => {
                   : "justify-start"
               }`}
             >
-              {message.sender_id !== currentUser?.id && <Avatar size="small" />}
+              {message.sender_id !== currentUser?.id && <Avatar size="sm" />}
               <div
                 className={`max-w-xs px-4 py-2 rounded-lg ${
                   message.sender_id === currentUser?.id
