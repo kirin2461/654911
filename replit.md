@@ -145,7 +145,7 @@ Authentication uses JWT tokens. User sessions and UI preferences are managed via
   - No dial tones when entering voice channels (separated from direct calls)
   - Environment variables for custom TURN: TURN_SERVER_URL, TURN_SERVER_USERNAME, TURN_SERVER_PASSWORD
 
-- **Channel Management & UI Improvements (Latest)**
+- **Channel Management & UI Improvements**
   - ConfirmDialog component for user confirmations (replaces native browser dialogs)
   - Channel deletion only available to guild owners (owner_id gating)
   - Delete channel context menu option shows ConfirmDialog with warning
@@ -153,3 +153,13 @@ Authentication uses JWT tokens. User sessions and UI preferences are managed via
   - Message deletion confirmation via ConfirmDialog
   - Vite build optimizations: manual chunks for vendor dependencies, CSS minification, optimized dependency pre-bundling
   - Improved loading screen with animated spinner
+
+- **Video Call Audio Transmission & State Synchronization (Latest)**
+  - AudioLevelIndicator component displays real-time audio levels with animated bars using Web Audio API
+  - AudioLogsPanel shows audio events (mute/unmute, transmission status, call state changes)
+  - useAudioLogger hook for centralized audio event logging with timestamps
+  - WebSocket message types added: mute-toggle, video-toggle, call-state-sync for participant state sync
+  - Remote participant state (muted/video off) displayed with badges on video containers
+  - State synchronization sent on call connect and when toggling mute/video
+  - AudioContext reuse to prevent browser resource exhaustion (single instance per component)
+  - Proper cleanup resets remote state to avoid stale data between calls
