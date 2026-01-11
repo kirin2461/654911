@@ -170,6 +170,17 @@ func registerHandler(c *gin.Context) {
                 return
         }
 
+        // Content filter check
+        filterResult := checkContentFilter(req.Username, 0, "registration")
+        if filterResult.IsForbidden {
+                log.Printf("Register blocked: username contains forbidden words: %v", filterResult.MatchedWords)
+                c.JSON(http.StatusForbidden, gin.H{
+                        "error":         "Username contains forbidden content",
+                        "matched_words": filterResult.MatchedWords,
+                })
+                return
+        }
+
         // Check if user already exists
         var count int64
         db.Model(&User{}).Where("username = ?", req.Username).Count(&count)
@@ -222,6 +233,17 @@ func loginHandler(c *gin.Context) {
         if err := c.ShouldBindJSON(&req); err != nil {
                 log.Printf("Login bind error: %v", err)
                 c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+                return
+        }
+
+        // Content filter check
+        filterResult := checkContentFilter(req.Username, 0, "login")
+        if filterResult.IsForbidden {
+                log.Printf("Login blocked: username contains forbidden words: %v", filterResult.MatchedWords)
+                c.JSON(http.StatusForbidden, gin.H{
+                        "error":         "Username contains forbidden content",
+                        "matched_words": filterResult.MatchedWords,
+                })
                 return
         }
 
