@@ -9,9 +9,9 @@ import { AppStateProvider } from './contexts/AppStateContext'
 import { IncomingCallNotification } from './components/IncomingCallNotification'
 
 
-// Pages (lazy loaded)
-const AuthPage = React.lazy(() => import('./pages/AuthPage'))
-const DashboardPage = React.lazy(() => import('./pages/DashboardPage'))
+// Pages
+import AuthPage from './pages/AuthPage'
+import DashboardPage from './pages/DashboardPage'
 const FeedPage = React.lazy(() => import('./pages/FeedPage'))
 const VideoPage = React.lazy(() => import('./pages/VideoPage'))
 const VideoCallPage = React.lazy(() => import('./pages/VideoCallPage'))
