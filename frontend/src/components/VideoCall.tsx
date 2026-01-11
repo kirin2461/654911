@@ -49,6 +49,7 @@ const VideoCall: React.FC<VideoCallProps> = ({
         
         // CRITICAL: Some browsers require a user gesture or specific attributes
         remoteVideoRef.current.setAttribute('playsinline', 'true');
+        remoteVideoRef.current.setAttribute('autoplay', 'true');
         
         const playPromise = remoteVideoRef.current.play();
         if (playPromise !== undefined) {
@@ -56,10 +57,14 @@ const VideoCall: React.FC<VideoCallProps> = ({
             console.error("Error playing remote video:", e);
             // Attempt to play on any click if auto-play fails
             const playOnGesture = () => {
-              remoteVideoRef.current?.play();
+              if (remoteVideoRef.current) {
+                remoteVideoRef.current.play().catch(err => console.error("Play on gesture failed:", err));
+              }
               document.removeEventListener('click', playOnGesture);
+              document.removeEventListener('touchstart', playOnGesture);
             };
             document.addEventListener('click', playOnGesture);
+            document.addEventListener('touchstart', playOnGesture);
           });
         }
       }

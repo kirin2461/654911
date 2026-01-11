@@ -321,9 +321,9 @@ func (c *WSClient) readPump() {
                                 log.Printf("Routing %s from %s to %s", msgType, c.UserID, targetUserID)
                                 hub.sendToUser(targetUserID, msg)
                                 
-                                // Also handle call-end specifically to clear roster if needed
-                                if msgType == "call-end" {
-                                    // Additional logic if needed to cleanup state
+                                // CRITICAL FIX: Ensure both sides end the call when one side sends "call-end"
+                                if msgType == "call-end" || msgType == "call-rejected" || msgType == "call-cancelled" {
+                                    log.Printf("Call termination signal %s from %s to %s", msgType, c.UserID, targetUserID)
                                 }
                                 continue
                         }

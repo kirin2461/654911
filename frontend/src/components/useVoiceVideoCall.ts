@@ -135,8 +135,13 @@ const useVoiceVideoCall = (): UseVoiceVideoCallReturn => {
 
   // End active call
   const endCall = useCallback((targetUserId?: string) => {
+    console.log("Ending call. Target:", targetUserId);
+    
     if (callState.localStream) {
-      callState.localStream.getTracks().forEach((track) => track.stop());
+      callState.localStream.getTracks().forEach((track) => {
+        track.stop();
+        console.log("Stopped local track:", track.kind);
+      });
     }
 
     if (peerConnectionRef.current) {
@@ -150,6 +155,7 @@ const useVoiceVideoCall = (): UseVoiceVideoCallReturn => {
 
     // Notify backend and other peer through WebSocket
     if (targetUserId && targetUserId !== 'undefined') {
+      console.log("Sending call-end to", targetUserId);
       sendWebSocketMessage({
         type: 'call-end',
         targetUserId: targetUserId
@@ -167,21 +173,28 @@ const useVoiceVideoCall = (): UseVoiceVideoCallReturn => {
     }));
   }, [callState.localStream, sendWebSocketMessage]);
 
-  // Handle remote call end
+  // Handle remote call events
   useEffect(() => {
     const handleRemoteCallEnd = (event: any) => {
-      const { fromUserId } = event.detail;
-      // If we are in a call with this user, end it locally
-      if (callState.remoteParticipants.some(p => p.id === fromUserId)) {
+      const { fromUserId, type } = event.detail;
+      console.log("Remote call event received:", type, "from:", fromUserId);
+      
+      // If we receive call-end, call-rejected, or call-cancelled, end the call locally
+      if (['call-end', 'call-rejected', 'call-cancelled'].includes(type)) {
         endCall();
       }
     };
 
     window.addEventListener('remote-call-end', handleRemoteCallEnd);
+    window.addEventListener('remote-call-rejected', handleRemoteCallEnd);
+    window.addEventListener('remote-call-cancelled', handleRemoteCallEnd);
+    
     return () => {
       window.removeEventListener('remote-call-end', handleRemoteCallEnd);
+      window.removeEventListener('remote-call-rejected', handleRemoteCallEnd);
+      window.removeEventListener('remote-call-cancelled', handleRemoteCallEnd);
     };
-  }, [callState.remoteParticipants, endCall]);
+  }, [endCall]);
 
   // Toggle audio
   const toggleAudio = useCallback(async () => {
