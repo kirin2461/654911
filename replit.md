@@ -184,3 +184,33 @@ Only applies to Про and Премиум plans when used by organizations:
 - Maximum duration: 120 minutes
 - Weekly quota: 3 videos per user (rolling 7-day window)
 - Duration validated client-side using HTML5 Video API
+
+## Discord-Style Channels Page (January 2026)
+
+### Server Sidebar
+- Left sidebar with guild icons (like Discord)
+- Active server indicator with white bar
+- Hover effects with rounded corners transition
+- Add server button with green hover state
+
+### Channel Categories
+- Collapsible categories with ChevronDown/ChevronRight toggle
+- Category headers highlight when containing unread channels
+- Plus button to create channel in category
+
+### Channel Features
+- Type-specific icons: # (text), speaker (voice), camera (video)
+- Unread indicators: white dot on left, bold text
+- Voice/video channel user list below channel
+- Speaking indicator with green ring effect
+
+### Real-time Features
+- Typing indicator with animated dots ("username печатает...")
+- WebSocket integration for channel messages
+- Unread state clears when channel is selected
+
+### Message Actions
+- Edit messages inline with Escape/Enter shortcuts
+- Delete messages via API with confirmation dialog
+- Functional state updates to prevent race conditions
+- Context menu with Reply, React, Copy, Pin, Edit, Delete

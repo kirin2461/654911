@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Layout } from '@/components/Layout'
 import { Avatar } from '@/components/Avatar'
 import { cn } from '@/lib/utils'
@@ -11,7 +11,7 @@ import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { useStore } from '@/lib/store'
 import { useNotifications } from '@/contexts/NotificationContext'
 import { useVoice } from '@/contexts/VoiceContext'
-import { guildsAPI, channelsAPI } from '@/lib/api'
+import { guildsAPI, channelsAPI, presenceAPI, messagesAPI } from '@/lib/api'
 import { formatTime } from '@/lib/utils'
 import {
   Hash,
@@ -35,6 +35,7 @@ import {
   Reply,
   Smile,
   ChevronDown,
+  ChevronRight,
   X,
   Shield,
   Crown,
@@ -43,7 +44,8 @@ import {
   MessageSquare,
   Mic,
   MicOff,
-  Video
+  Video,
+  Circle
 } from 'lucide-react'
 
 type Guild = {
@@ -102,6 +104,13 @@ export default function ChannelsPage() {
     confirmText?: string
   }>({ isOpen: false, title: '', message: '', onConfirm: () => {} })
   const [deleteLoading, setDeleteLoading] = useState(false)
+  const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set())
+  const [typingUsers, setTypingUsers] = useState<Map<string, { username: string; timestamp: number }>>(new Map())
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null)
+  const [editingContent, setEditingContent] = useState('')
+  const [unreadChannels, setUnreadChannels] = useState<Set<string>>(new Set())
+  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const lastTypingSentRef = useRef<number>(0)
   
   void leaveVoiceChannel
 
@@ -116,23 +125,42 @@ export default function ChannelsPage() {
   void Video
   void setRoles
   void loading
+  void Circle
 
   const handleWebSocketMessage = useCallback((data: any) => {
-    if (data.type === 'channel-message' && selectedChannel && String(data.channel_id) === String(selectedChannel.id)) {
+    if (data.type === 'channel-message') {
+      const channelId = String(data.channel_id)
       const msg = data.message
-      setMessages(prev => {
-        if (prev.some(m => String(m.id) === String(msg.id || msg.ID))) return prev
-        return [...prev, {
-          id: String(msg.id || msg.ID),
-          channel_id: String(msg.channel_id || msg.ChannelID),
-          author_id: String(msg.author_id || msg.AuthorID),
-          author: msg.author || msg.Author || { id: String(msg.author_id || msg.AuthorID), username: 'User', avatar: undefined },
-          content: msg.content || msg.Content,
-          created_at: msg.created_at || msg.CreatedAt
-        }]
-      })
+      
+      if (selectedChannel && channelId === String(selectedChannel.id)) {
+        setMessages(prev => {
+          if (prev.some(m => String(m.id) === String(msg.id || msg.ID))) return prev
+          return [...prev, {
+            id: String(msg.id || msg.ID),
+            channel_id: String(msg.channel_id || msg.ChannelID),
+            author_id: String(msg.author_id || msg.AuthorID),
+            author: msg.author || msg.Author || { id: String(msg.author_id || msg.AuthorID), username: 'User', avatar: undefined },
+            content: msg.content || msg.Content,
+            created_at: msg.created_at || msg.CreatedAt
+          }]
+        })
+      } else {
+        setUnreadChannels(prev => new Set(prev).add(channelId))
+      }
     }
-  }, [selectedChannel])
+    
+    if (data.type === 'typing' && selectedChannel && String(data.channel_id) === String(selectedChannel.id)) {
+      const userId = String(data.user_id)
+      const username = data.username || 'Someone'
+      if (userId !== String(user?.id)) {
+        setTypingUsers(prev => {
+          const newMap = new Map(prev)
+          newMap.set(userId, { username, timestamp: Date.now() })
+          return newMap
+        })
+      }
+    }
+  }, [selectedChannel, user?.id])
 
   useEffect(() => {
     const unsubscribe = subscribeToMessages(handleWebSocketMessage)
@@ -142,8 +170,51 @@ export default function ChannelsPage() {
   useEffect(() => {
     if (selectedChannel && selectedChannel.type !== 'voice') {
       loadChannelMessages(selectedChannel.id)
+      setUnreadChannels(prev => {
+        const newSet = new Set(prev)
+        newSet.delete(selectedChannel.id)
+        return newSet
+      })
     } else {
       setMessages([])
+    }
+    setTypingUsers(new Map())
+  }, [selectedChannel])
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const now = Date.now()
+      setTypingUsers(prev => {
+        const newMap = new Map()
+        prev.forEach((value, key) => {
+          if (now - value.timestamp < 3000) {
+            newMap.set(key, value)
+          }
+        })
+        return newMap.size !== prev.size ? newMap : prev
+      })
+    }, 1000)
+    return () => clearInterval(interval)
+  }, [])
+
+  const toggleCategory = (category: string) => {
+    setCollapsedCategories(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(category)) {
+        newSet.delete(category)
+      } else {
+        newSet.add(category)
+      }
+      return newSet
+    })
+  }
+
+  const sendTypingIndicator = useCallback(() => {
+    if (!selectedChannel || selectedChannel.type === 'voice') return
+    const now = Date.now()
+    if (now - lastTypingSentRef.current > 2000) {
+      lastTypingSentRef.current = now
+      presenceAPI.sendTyping(selectedChannel.id).catch(() => {})
     }
   }, [selectedChannel])
 
@@ -368,11 +439,47 @@ export default function ChannelsPage() {
       message: 'Вы уверены, что хотите удалить это сообщение?',
       confirmText: 'Удалить',
       variant: 'danger',
-      onConfirm: () => {
-        setMessages(messages.filter(m => m.id !== messageId))
-        setConfirmDialog(prev => ({ ...prev, isOpen: false }))
+      onConfirm: async () => {
+        setDeleteLoading(true)
+        try {
+          await messagesAPI.deleteMessage(messageId)
+          setMessages(prev => prev.filter(m => m.id !== messageId))
+          setConfirmDialog(prev => ({ ...prev, isOpen: false }))
+        } catch (error) {
+          console.error('Failed to delete message:', error)
+        } finally {
+          setDeleteLoading(false)
+        }
       }
     })
+  }
+
+  const handleStartEditMessage = (message: ChannelMessage) => {
+    setEditingMessageId(message.id)
+    setEditingContent(message.content)
+  }
+
+  const handleCancelEditMessage = () => {
+    setEditingMessageId(null)
+    setEditingContent('')
+  }
+
+  const handleSaveEditMessage = async () => {
+    if (!editingMessageId || !editingContent.trim()) return
+    const msgId = editingMessageId
+    const newContent = editingContent.trim()
+    try {
+      await messagesAPI.updateMessage(msgId, newContent)
+      setMessages(prev => prev.map(m => 
+        m.id === msgId 
+          ? { ...m, content: newContent }
+          : m
+      ))
+      setEditingMessageId(null)
+      setEditingContent('')
+    } catch (error) {
+      console.error('Failed to update message:', error)
+    }
   }
 
   const handlePinMessage = (messageId: string) => {
@@ -577,38 +684,38 @@ export default function ChannelsPage() {
   }
 
   const getMessageContextMenuItems = (message: any): ContextMenuItem[] => {
-    const isOwn = message.author_id === user?.id
+    const isOwn = String(message.author_id) === String(user?.id)
 
     return [
       {
-        label: 'Reply',
+        label: 'Ответить',
         icon: <Reply className="w-4 h-4" />,
         onClick: () => handleReplyToMessage(message),
       },
       {
-        label: 'React',
+        label: 'Реакция',
         icon: <Smile className="w-4 h-4" />,
         onClick: () => {},
       },
       {
-        label: 'Copy',
+        label: 'Копировать',
         icon: <Copy className="w-4 h-4" />,
         onClick: () => handleCopyMessage(message.content),
       },
       {
-        label: 'Pin',
+        label: 'Закрепить',
         icon: <Pin className="w-4 h-4" />,
         onClick: () => handlePinMessage(message.id),
       },
       ...(isOwn ? [
         { divider: true } as ContextMenuItem,
         {
-          label: 'Edit',
+          label: 'Редактировать',
           icon: <Edit3 className="w-4 h-4" />,
-          onClick: () => {},
+          onClick: () => handleStartEditMessage(message),
         },
         {
-          label: 'Delete',
+          label: 'Удалить',
           icon: <Trash2 className="w-4 h-4" />,
           onClick: () => handleDeleteMessage(message.id),
           variant: 'danger' as const,
@@ -825,115 +932,154 @@ export default function ChannelsPage() {
 
           {/* Channels List */}
           <div className="flex-1 overflow-y-auto p-2">
-            {Object.entries(channelsByCategory).map(([category, channels]) => (
-              <div key={category} className="mb-4">
-                <div className="px-2 mb-1 flex items-center gap-1 group">
-                  <ChevronDown className="w-3 h-3 text-muted-foreground" />
-                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex-1">
-                    {category}
-                  </span>
+            {Object.entries(channelsByCategory).map(([category, channels]) => {
+              const isCollapsed = collapsedCategories.has(category)
+              const hasUnread = channels.some((c: any) => unreadChannels.has(c.id))
+              
+              return (
+                <div key={category} className="mb-2">
                   <button
-                    onClick={() => setShowCreateChannelModal(true)}
-                    className="opacity-0 group-hover:opacity-100 p-0.5 hover:bg-accent/20 rounded transition-opacity"
-                    title="Создать канал"
+                    onClick={() => toggleCategory(category)}
+                    className="w-full px-1 mb-1 flex items-center gap-1 group hover:text-foreground transition-colors"
                   >
-                    <Plus className="w-3.5 h-3.5 text-muted-foreground hover:text-foreground" />
-                  </button>
-                </div>
-
-                {channels.map((channel: any) => (
-                  <div key={channel.id}>
-                    <div
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => {
-                        setSelectedChannel(channel)
-                        if (channel.type === 'voice' && selectedGuild) {
-                          setActiveVoiceChannel(channel.id)
-                          joinVoiceChannel(
-                            channel.id,
-                            channel.name,
-                            selectedGuild.id,
-                            selectedGuild.name
-                          )
-                        }
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                          setSelectedChannel(channel)
-                          if (channel.type === 'voice' && selectedGuild) {
-                            setActiveVoiceChannel(channel.id)
-                            joinVoiceChannel(
-                              channel.id,
-                              channel.name,
-                              selectedGuild.id,
-                              selectedGuild.name
-                            )
-                          }
-                        }
-                      }}
-                      onContextMenu={(e) => channelContextMenu.showContextMenu(e, getChannelContextMenuItems(channel))}
-                      className={`w-full px-2 py-1.5 rounded-md flex items-center gap-2 group transition-all cursor-pointer ${
-                        selectedChannel?.id === channel.id
-                          ? 'bg-[#3f4147] text-white'
-                          : 'text-[#949ba4] hover:bg-[#35373c] hover:text-[#dbdee1]'
-                      }`}
-                    >
-                      {channel.type === 'voice' ? (
-                        <Volume2 className={`w-4 h-4 flex-shrink-0 ${voiceState.isConnected && voiceState.channelId === channel.id ? 'text-[#23a559]' : ''}`} />
-                      ) : (
-                        <Hash className="w-4 h-4 flex-shrink-0" />
-                      )}
-                      <span className="text-sm truncate font-medium">{channel.name}</span>
-
-                      {/* Options button */}
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          channelContextMenu.showContextMenu(e as any, getChannelContextMenuItems(channel))
-                        }}
-                        className="ml-auto opacity-0 group-hover:opacity-100 p-0.5 hover:bg-[#404249] rounded"
-                      >
-                        <Settings className="w-3.5 h-3.5 text-[#b5bac1]" />
-                      </button>
-                    </div>
-                    
-                    {/* Voice channel users */}
-                    {channel.type === 'voice' && (voiceChannelUsers[channel.id]?.length || 0) > 0 && (
-                      <div className="ml-6 mt-1 space-y-0.5 mb-2">
-                        {voiceChannelUsers[channel.id]?.map((voiceUser: { id: string; username: string; avatar?: string; isMuted?: boolean; isSpeaking?: boolean }) => (
-                          <div
-                            key={voiceUser.id}
-                            className={`flex items-center gap-2 px-2 py-1 rounded text-sm group/user ${
-                              voiceUser.isSpeaking ? 'text-white' : 'text-[#949ba4] hover:text-[#dbdee1]'
-                            }`}
-                          >
-                            <div className="relative">
-                              <div className={cn(
-                                "w-6 h-6 rounded-full bg-[#5865f2] flex items-center justify-center text-[10px] font-medium transition-all duration-200",
-                                voiceUser.isSpeaking && "ring-2 ring-[#23a559] ring-offset-1 ring-offset-[#2b2d31]"
-                              )}>
-                                {voiceUser.avatar ? (
-                                  <img src={voiceUser.avatar} alt="" className="w-full h-full rounded-full object-cover" />
-                                ) : (
-                                  voiceUser.username.charAt(0).toUpperCase()
-                                )}
-                              </div>
-                              {voiceUser.isMuted && (
-                                <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-[#2b2d31] rounded-full flex items-center justify-center">
-                                  <MicOff className="w-2 h-2 text-[#da373c]" />
-                                </div>
-                              )}
-                            </div>
-                            <span className="truncate flex-1">{voiceUser.username}</span>
-                          </div>
-                        ))}
-                      </div>
+                    {isCollapsed ? (
+                      <ChevronRight className="w-3 h-3 text-muted-foreground" />
+                    ) : (
+                      <ChevronDown className="w-3 h-3 text-muted-foreground" />
                     )}
-                  </div>
-                ))}
-              </div>
-            ))}
+                    <span className={cn(
+                      "text-xs font-semibold uppercase tracking-wider flex-1 text-left",
+                      hasUnread ? "text-foreground" : "text-muted-foreground"
+                    )}>
+                      {category}
+                    </span>
+                    <span
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setShowCreateChannelModal(true)
+                      }}
+                      className="opacity-0 group-hover:opacity-100 p-0.5 hover:bg-accent/20 rounded transition-opacity cursor-pointer"
+                      title="Создать канал"
+                    >
+                      <Plus className="w-3.5 h-3.5 text-muted-foreground hover:text-foreground" />
+                    </span>
+                  </button>
+
+                  {!isCollapsed && channels.map((channel: any) => {
+                    const isUnread = unreadChannels.has(channel.id)
+                    const isActive = selectedChannel?.id === channel.id
+                    const isVoiceConnected = voiceState.isConnected && voiceState.channelId === channel.id
+                    
+                    const getChannelIcon = () => {
+                      switch (channel.type) {
+                        case 'voice':
+                          return <Volume2 className={cn("w-4 h-4 flex-shrink-0", isVoiceConnected && "text-[#23a559]")} />
+                        case 'video':
+                          return <Video className="w-4 h-4 flex-shrink-0" />
+                        default:
+                          return <Hash className="w-4 h-4 flex-shrink-0" />
+                      }
+                    }
+                    
+                    return (
+                      <div key={channel.id}>
+                        <div
+                          role="button"
+                          tabIndex={0}
+                          onClick={() => {
+                            setSelectedChannel(channel)
+                            if ((channel.type === 'voice' || channel.type === 'video') && selectedGuild) {
+                              setActiveVoiceChannel(channel.id)
+                              joinVoiceChannel(
+                                channel.id,
+                                channel.name,
+                                selectedGuild.id,
+                                selectedGuild.name
+                              )
+                            }
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              setSelectedChannel(channel)
+                              if ((channel.type === 'voice' || channel.type === 'video') && selectedGuild) {
+                                setActiveVoiceChannel(channel.id)
+                                joinVoiceChannel(
+                                  channel.id,
+                                  channel.name,
+                                  selectedGuild.id,
+                                  selectedGuild.name
+                                )
+                              }
+                            }
+                          }}
+                          onContextMenu={(e) => channelContextMenu.showContextMenu(e, getChannelContextMenuItems(channel))}
+                          className={cn(
+                            "w-full px-2 py-1.5 rounded-md flex items-center gap-2 group transition-all cursor-pointer relative",
+                            isActive
+                              ? 'bg-[#3f4147] text-white'
+                              : isUnread
+                                ? 'text-white hover:bg-[#35373c]'
+                                : 'text-[#949ba4] hover:bg-[#35373c] hover:text-[#dbdee1]'
+                          )}
+                        >
+                          {isUnread && !isActive && (
+                            <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-2 bg-white rounded-r-full" />
+                          )}
+                          {getChannelIcon()}
+                          <span className={cn(
+                            "text-sm truncate flex-1",
+                            isUnread || isActive ? "font-semibold" : "font-medium"
+                          )}>{channel.name}</span>
+
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              channelContextMenu.showContextMenu(e as any, getChannelContextMenuItems(channel))
+                            }}
+                            className="ml-auto opacity-0 group-hover:opacity-100 p-0.5 hover:bg-[#404249] rounded"
+                          >
+                            <Settings className="w-3.5 h-3.5 text-[#b5bac1]" />
+                          </button>
+                        </div>
+                    
+                        {/* Voice channel users */}
+                        {(channel.type === 'voice' || channel.type === 'video') && (voiceChannelUsers[channel.id]?.length || 0) > 0 && (
+                          <div className="ml-6 mt-1 space-y-0.5 mb-2">
+                            {voiceChannelUsers[channel.id]?.map((voiceUser: { id: string; username: string; avatar?: string; isMuted?: boolean; isSpeaking?: boolean }) => (
+                              <div
+                                key={voiceUser.id}
+                                className={`flex items-center gap-2 px-2 py-1 rounded text-sm group/user ${
+                                  voiceUser.isSpeaking ? 'text-white' : 'text-[#949ba4] hover:text-[#dbdee1]'
+                                }`}
+                              >
+                                <div className="relative">
+                                  <div className={cn(
+                                    "w-6 h-6 rounded-full bg-[#5865f2] flex items-center justify-center text-[10px] font-medium transition-all duration-200",
+                                    voiceUser.isSpeaking && "ring-2 ring-[#23a559] ring-offset-1 ring-offset-[#2b2d31]"
+                                  )}>
+                                    {voiceUser.avatar ? (
+                                      <img src={voiceUser.avatar} alt="" className="w-full h-full rounded-full object-cover" />
+                                    ) : (
+                                      voiceUser.username.charAt(0).toUpperCase()
+                                    )}
+                                  </div>
+                                  {voiceUser.isMuted && (
+                                    <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-[#2b2d31] rounded-full flex items-center justify-center">
+                                      <MicOff className="w-2 h-2 text-[#da373c]" />
+                                    </div>
+                                  )}
+                                </div>
+                                <span className="truncate flex-1">{voiceUser.username}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )
+            })}
           </div>
 
           {/* Voice Status Bar */}
@@ -1009,21 +1155,76 @@ export default function ChannelsPage() {
                           <span className="font-semibold text-sm">{message.author.username}</span>
                           <span className="text-xs text-muted-foreground">{formatTime(message.created_at)}</span>
                         </div>
-                        <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                        {editingMessageId === message.id ? (
+                          <div className="flex flex-col gap-2">
+                            <input
+                              type="text"
+                              value={editingContent}
+                              onChange={(e) => setEditingContent(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') handleSaveEditMessage()
+                                if (e.key === 'Escape') handleCancelEditMessage()
+                              }}
+                              className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm focus:ring-2 focus:ring-primary"
+                              autoFocus
+                            />
+                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                              <span>escape для отмены</span>
+                              <span>•</span>
+                              <span>enter для сохранения</span>
+                              <button
+                                onClick={handleSaveEditMessage}
+                                className="ml-auto px-2 py-1 bg-primary text-white rounded text-xs hover:bg-primary/90"
+                              >
+                                Сохранить
+                              </button>
+                              <button
+                                onClick={handleCancelEditMessage}
+                                className="px-2 py-1 bg-muted rounded text-xs hover:bg-muted/80"
+                              >
+                                Отмена
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                        )}
                       </div>
                       
-                      <div className="opacity-0 group-hover:opacity-100 flex gap-1">
-                        <button className="p-1 hover:bg-accent rounded" onClick={() => handleReplyToMessage(message)}>
-                          <Reply className="w-4 h-4 text-muted-foreground" />
-                        </button>
-                        <button className="p-1 hover:bg-accent rounded" onClick={() => messageContextMenu.showContextMenu(null as any, getMessageContextMenuItems(message))}>
-                          <MoreVertical className="w-4 h-4 text-muted-foreground" />
-                        </button>
-                      </div>
+                      {editingMessageId !== message.id && (
+                        <div className="opacity-0 group-hover:opacity-100 flex gap-1">
+                          <button className="p-1 hover:bg-accent rounded" onClick={() => handleReplyToMessage(message)}>
+                            <Reply className="w-4 h-4 text-muted-foreground" />
+                          </button>
+                          {String(message.author_id) === String(user?.id) && (
+                            <button className="p-1 hover:bg-accent rounded" onClick={() => handleStartEditMessage(message)}>
+                              <Edit3 className="w-4 h-4 text-muted-foreground" />
+                            </button>
+                          )}
+                          <button className="p-1 hover:bg-accent rounded" onClick={() => messageContextMenu.showContextMenu(null as any, getMessageContextMenuItems(message))}>
+                            <MoreVertical className="w-4 h-4 text-muted-foreground" />
+                          </button>
+                        </div>
+                      )}
                     </div>
                   ))
                 )}
               </div>
+
+              {/* Typing Indicator */}
+              {typingUsers.size > 0 && (
+                <div className="px-4 py-1 text-xs text-muted-foreground flex items-center gap-2">
+                  <div className="flex gap-0.5">
+                    <span className="w-1.5 h-1.5 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                    <span className="w-1.5 h-1.5 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                    <span className="w-1.5 h-1.5 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                  </div>
+                  <span>
+                    {Array.from(typingUsers.values()).map(u => u.username).join(', ')}
+                    {typingUsers.size === 1 ? ' печатает...' : ' печатают...'}
+                  </span>
+                </div>
+              )}
 
               {/* Message Input */}
               <div className="p-4 bg-card/30 backdrop-blur-md">
@@ -1031,11 +1232,11 @@ export default function ChannelsPage() {
                   <div className="mb-2 px-3 py-2 bg-accent/10 rounded-lg flex items-center justify-between">
                     <div className="flex items-center gap-2 text-xs">
                       <Reply className="w-3 h-3 text-primary" />
-                      <span className="text-muted-foreground">Replying to</span>
+                      <span className="text-muted-foreground">Ответ на</span>
                       <span className="font-semibold">{replyingTo.author.username}</span>
                     </div>
                     <button onClick={() => setReplyingTo(null)} className="p-1 hover:bg-accent/20 rounded">
-                      <Plus className="w-3 h-3 rotate-45" />
+                      <X className="w-3 h-3" />
                     </button>
                   </div>
                 )}
@@ -1043,9 +1244,12 @@ export default function ChannelsPage() {
                   <input
                     type="text"
                     value={newMessage}
-                    onChange={(e) => setNewMessage(e.target.value)}
+                    onChange={(e) => {
+                      setNewMessage(e.target.value)
+                      sendTypingIndicator()
+                    }}
                     onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
-                    placeholder={`Message #${selectedChannel.name}`}
+                    placeholder={`Сообщение в #${selectedChannel.name}`}
                     className="w-full bg-accent/10 border-none rounded-xl py-3 px-4 focus:ring-2 focus:ring-primary/50 transition-all pr-12"
                   />
                   <button
