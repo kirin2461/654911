@@ -214,3 +214,11 @@ Only applies to Про and Премиум plans when used by organizations:
 - Delete messages via API with confirmation dialog
 - Functional state updates to prevent race conditions
 - Context menu with Reply, React, Copy, Pin, Edit, Delete
+
+### Message Reactions
+- Quick reaction picker with 8 common emojis (👍❤️😂😮😢😡🎉🔥)
+- Toggle reactions: click to add, click again to remove
+- Real-time sync via WebSocket (reaction_add/reaction_remove events)
+- Reaction pills show emoji and count below messages
+- User's own reactions highlighted with primary color border
+- Access via Smile button on hover or context menu "Реакция"
