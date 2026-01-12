@@ -38,7 +38,7 @@ import {
 
 export default function MessagesPage() {
   const { user, conversations, fetchConversations, isDemoMode } = useStore()
-  const { subscribeToMessages, sendWebSocketMessage } = useNotifications()
+  const { subscribeToMessages, sendWebSocketMessage, clearMessageNotificationsFromUser } = useNotifications()
   const [location] = useLocation()
   const [selectedUser, setSelectedUser] = useState<User | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
@@ -323,9 +323,10 @@ export default function MessagesPage() {
         }
         setSelectedUser(userToSelect)
         loadMessages(friend.id)
+        clearMessageNotificationsFromUser(String(friend.id))
       }
     }
-  }, [location, realFriends])
+  }, [location, realFriends, clearMessageNotificationsFromUser])
 
   // Context menu hooks
   const messageContextMenu = useContextMenu()
@@ -362,6 +363,7 @@ export default function MessagesPage() {
     clearTypingIndicators()
     setSelectedUser(chatUser)
     loadMessages(chatUser.id)
+    clearMessageNotificationsFromUser(String(chatUser.id))
   }
 
   const handleSelectUserFromModal = (friend: any) => {
@@ -376,6 +378,7 @@ export default function MessagesPage() {
     }
     setSelectedUser(friendUser)
     loadMessages(friendUser.id)
+    clearMessageNotificationsFromUser(String(friendUser.id))
     setShowNewMessageModal(false)
   }
 

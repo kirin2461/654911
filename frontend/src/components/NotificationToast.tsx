@@ -10,6 +10,7 @@ export interface Notification {
   message: string
   avatar?: string
   username?: string
+  userId?: string
   timestamp: Date
   read: boolean
   onClick?: () => void

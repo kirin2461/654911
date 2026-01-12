@@ -34,6 +34,7 @@ interface NotificationContextType {
   markAllAsRead: () => void
   clearNotification: (id: string) => void
   clearAll: () => void
+  clearMessageNotificationsFromUser: (userId: string) => void
   incomingCall: IncomingCall | null
   outgoingCall: OutgoingCall | null
   acceptCall: () => void
@@ -115,6 +116,12 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
 
   const clearAll = useCallback(() => {
     setNotifications([])
+  }, [])
+
+  const clearMessageNotificationsFromUser = useCallback((userId: string) => {
+    setNotifications(prev => prev.filter(n => 
+      !(n.type === 'message' && n.userId === userId)
+    ))
   }, [])
 
   useEffect(() => {
@@ -342,7 +349,8 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
               type: 'message',
               title: 'Новое сообщение',
               message: data.content || `Сообщение от ${data.username || 'пользователя'}`,
-              username: data.username
+              username: data.username,
+              userId: String(senderId)
             })
           }
         }
@@ -362,7 +370,8 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
               type: 'message',
               title: 'Новое сообщение',
               message: data.content || `Сообщение от ${data.username || 'пользователя'}`,
-              username: data.username
+              username: data.username,
+              userId: String(senderId)
             })
           }
         }
@@ -533,6 +542,7 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
       markAllAsRead,
       clearNotification,
       clearAll,
+      clearMessageNotificationsFromUser,
       incomingCall,
       outgoingCall,
       acceptCall,
