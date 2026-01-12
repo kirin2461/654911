@@ -122,7 +122,7 @@ function App() {
                   </ProtectedRoute>
                 </Route>
 
-                <Route path="/video">
+                <Route path="/videos">
                   <ProtectedRoute>
                     <VideoPage />
                   </ProtectedRoute>
