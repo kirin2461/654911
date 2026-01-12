@@ -194,16 +194,21 @@ func createPostHandler(c *gin.Context) {
 }
 
 func getPlatformStatsHandler(c *gin.Context) {
-        var userCount, guildCount, messageCount int64
+        var userCount, channelCount, messageCount, onlineCount int64
         db.Model(&User{}).Count(&userCount)
-        db.Model(&Guild{}).Count(&guildCount)
+        db.Model(&Channel{}).Count(&channelCount)
         db.Model(&Message{}).Count(&messageCount)
+        db.Model(&User{}).Where("is_online = ?", true).Count(&onlineCount)
+
+        var activeStreams int64 = 0
 
         c.JSON(http.StatusOK, gin.H{
-                "users":    userCount,
-                "guilds":   guildCount,
-                "messages": messageCount,
-                "uptime":   time.Since(startTime).String(),
+                "totalUsers":    userCount,
+                "onlineUsers":   onlineCount,
+                "totalMessages": messageCount,
+                "totalChannels": channelCount,
+                "activeStreams": activeStreams,
+                "peakViewers":   0,
         })
 }
 
