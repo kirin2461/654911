@@ -460,13 +460,17 @@ func getUserSettingsHandler(c *gin.Context) {
         var settings UserSettings
         if db.Where("user_id = ?", uid).First(&settings).RowsAffected == 0 {
                 settings = UserSettings{
-                        UserID:          uid,
-                        Language:        "ru",
-                        Theme:           "dark",
-                        Notifications:   true,
-                        SoundEnabled:    true,
-                        NoiseReduction:  true,
-                        VoiceActivation: false,
+                        UserID:               uid,
+                        Language:             "ru",
+                        Theme:                "dark",
+                        NotificationsEnabled: true,
+                        SoundEnabled:         true,
+                        VoiceEnabled:         true,
+                        NoiseReduction:       true,
+                        JarvisPersonality:    "professional",
+                        JarvisWakeWord:       "Jarvis",
+                        ProfileVisibility:    "public",
+                        MessagePrivacy:       "everyone",
                 }
                 db.Create(&settings)
         }

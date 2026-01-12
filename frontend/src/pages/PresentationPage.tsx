@@ -139,27 +139,6 @@ export default function PresentationPage() {
         </div>
       </section>
 
-      {/* Stats Section */}
-      <section className="py-20 px-4">
-        <div className="max-w-7xl mx-auto grid grid-cols-2 md:grid-cols-4 gap-8 text-center">
-          <div>
-            <div className="text-4xl font-bold text-blue-400 mb-2">10k+</div>
-            <div className="text-gray-400 uppercase tracking-widest text-xs">Пользователей</div>
-          </div>
-          <div>
-            <div className="text-4xl font-bold text-purple-400 mb-2">1M+</div>
-            <div className="text-gray-400 uppercase tracking-widest text-xs">Сообщений/день</div>
-          </div>
-          <div>
-            <div className="text-4xl font-bold text-green-400 mb-2">24/7</div>
-            <div className="text-gray-400 uppercase tracking-widest text-xs">Онлайн</div>
-          </div>
-          <div>
-            <div className="text-4xl font-bold text-yellow-400 mb-2">99.9%</div>
-            <div className="text-gray-400 uppercase tracking-widest text-xs">Аптайм</div>
-          </div>
-        </div>
-      </section>
 
       {/* Footer */}
       <footer className="py-10 border-t border-white/10 px-4">

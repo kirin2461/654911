@@ -969,15 +969,22 @@ export interface ChannelMessage {
 }
 
 export interface Settings {
+  id?: number;
+  user_id?: number;
   theme: string;
   language: string;
   notifications_enabled: boolean;
   sound_enabled: boolean;
   voice_enabled: boolean;
-  openai_key?: string;
-  deepseek_key?: string;
-  huggingface_key?: string;
-  [key: string]: any;
+  noise_reduction: boolean;
+  telegram_notifications: boolean;
+  openai_key: string;
+  deepseek_key: string;
+  huggingface_key: string;
+  jarvis_personality: string;
+  jarvis_wake_word: string;
+  profile_visibility: string;
+  message_privacy: string;
 }
 
 export interface Friend {

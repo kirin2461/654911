@@ -483,11 +483,21 @@ type UserSettings struct {
         UserID                uint   `gorm:"uniqueIndex" json:"user_id"`
         Language              string `gorm:"size:10;default:'ru'" json:"language"`
         Theme                 string `gorm:"size:20;default:'dark'" json:"theme"`
-        Notifications         bool   `gorm:"default:true" json:"notifications"`
+        NotificationsEnabled  bool   `gorm:"default:true" json:"notifications_enabled"`
         SoundEnabled          bool   `gorm:"default:true" json:"sound_enabled"`
+        VoiceEnabled          bool   `gorm:"default:true" json:"voice_enabled"`
         NoiseReduction        bool   `gorm:"default:true" json:"noise_reduction"`
-        VoiceActivation       bool   `gorm:"default:false" json:"voice_activation"`
         TelegramNotifications bool   `gorm:"default:false" json:"telegram_notifications"`
+        // AI API Keys
+        OpenAIKey      string `gorm:"size:255" json:"openai_key"`
+        DeepSeekKey    string `gorm:"size:255" json:"deepseek_key"`
+        HuggingFaceKey string `gorm:"size:255" json:"huggingface_key"`
+        // Jarvis Settings
+        JarvisPersonality string `gorm:"size:50;default:'professional'" json:"jarvis_personality"`
+        JarvisWakeWord    string `gorm:"size:50;default:'Jarvis'" json:"jarvis_wake_word"`
+        // Privacy Settings
+        ProfileVisibility string `gorm:"size:20;default:'public'" json:"profile_visibility"`
+        MessagePrivacy    string `gorm:"size:20;default:'everyone'" json:"message_privacy"`
 }
 
 // Content Filtering
