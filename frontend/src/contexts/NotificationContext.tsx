@@ -122,6 +122,9 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
     setNotifications(prev => prev.filter(n => 
       !(n.type === 'message' && n.userId === userId)
     ))
+    setToasts(prev => prev.filter(n => 
+      !(n.type === 'message' && n.userId === userId)
+    ))
   }, [])
 
   useEffect(() => {
@@ -145,7 +148,8 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
               title: n.title || n.type || 'Notification',
               message: n.message || n.content || '',
               read: n.read || false,
-              timestamp: n.created_at ? new Date(n.created_at) : new Date()
+              timestamp: n.created_at ? new Date(n.created_at) : new Date(),
+              userId: n.sender_id ? String(n.sender_id) : n.user_id ? String(n.user_id) : undefined
             }))
             setNotifications(mappedNotifications)
           }
